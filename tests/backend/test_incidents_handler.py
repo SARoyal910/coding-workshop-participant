@@ -67,13 +67,14 @@ def incidents(load_service, monkeypatch):
     monkeypatch.setattr(repo, "add_event", lambda *args, **kwargs: state.writes.append("add_event"))
     monkeypatch.setattr(repo, "floor_in_building", lambda floor_id, building_id: False)
 
-    def add_engineer(incident_id, engineer_id, role):
-        """Like INSERT ... ON CONFLICT DO NOTHING: True only when a row was added."""
-        state.writes.append(("add_engineer", engineer_id, role))
+    def add_engineer(incident_id, engineer_id):
+        """Like the real INSERT: primary if nobody is on it yet, else helper; None if already on it."""
         if engineer_id in state.engineers:
-            return False
+            return None
+        role = "helper" if state.engineers else "primary"
+        state.writes.append(("add_engineer", engineer_id, role))
         state.engineers.append(engineer_id)
-        return True
+        return role
 
     def create_request(incident_id, request_type, reason, requested_by):
         """The unique index allows one pending request per type; request_is_new=False simulates a duplicate."""

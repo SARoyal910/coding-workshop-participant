@@ -154,6 +154,9 @@ CREATE INDEX IF NOT EXISTS idx_incident_work_logs_incident ON incident_work_logs
 -- At most one pending request of each type (reopen / close_approval) per incident.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_incident_requests_pending
     ON incident_requests (incident_id, type) WHERE status = 'pending';
+-- At most one primary engineer per ticket, even if two engineers take it at the same moment.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_incident_engineers_primary
+    ON incident_engineers (incident_id) WHERE role = 'primary';
 -- An engineer acknowledges a ticket at most once per shift.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_incident_acks_shift
     ON incident_acks (incident_id, engineer_id, shift_ends_at);

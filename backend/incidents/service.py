@@ -458,9 +458,12 @@ def edit_note(user: dict, incident_id: int, note_id: int, data: dict) -> dict:
 
 def join_incident(user: dict, incident_id: int) -> dict:
     """
-    Put the calling engineer on the ticket: the first engineer is primary, later
-    ones are helpers. Any engineer may join any active ticket (a colleague can
-    share the link), so this does not use the normal visibility check.
+    Put the calling engineer on the ticket. If nobody has taken it yet they
+    become primary; if it is already taken they join as a helper. The database
+    decides (see repository.add_engineer), so two engineers taking the same
+    ticket at once can never both be primary. Any engineer may join any active
+    ticket (a colleague can share the link), so this does not use the normal
+    visibility check.
 
     Joining a ticket you are already on returns it unchanged (13.4).
 
@@ -476,14 +479,12 @@ def join_incident(user: dict, incident_id: int) -> dict:
         raise Forbidden("Only engineers can join tickets")
     _ensure_changeable(incident)
 
-    engineer_ids = {engineer["id"] for engineer in repository.get_engineers(incident_id)}
-    if user["id"] not in engineer_ids:
-        role = "helper" if engineer_ids else "primary"
-        with repository.transaction():
-            if repository.add_engineer(incident_id, user["id"], role):
-                if role == "primary":
-                    repository.mark_assigned(incident_id)
-                repository.add_event(incident_id, user["id"], "engineer_joined", to_value=role)
+    with repository.transaction():
+        role = repository.add_engineer(incident_id, user["id"])
+        if role == "primary":
+            repository.mark_assigned(incident_id)
+        if role is not None:
+            repository.add_event(incident_id, user["id"], "engineer_joined", to_value=role)
     return get_incident(user, incident_id)
 
 

@@ -374,18 +374,38 @@ def get_engineer_profile(user_id: int) -> dict | None:
     )
 
 
-def add_engineer(incident_id: int, engineer_id: int, role: str) -> bool:
+def add_engineer(incident_id: int, engineer_id: int) -> str | None:
     """
-    Put an engineer on a ticket (they add themselves, so added_by is the same person).
+    Put an engineer on a ticket: primary if nobody is primary yet, otherwise helper.
+    They add themselves, so added_by is the same person.
+
+    The role is decided inside the INSERT, and the unique index
+    uq_incident_engineers_primary allows only one primary per ticket. If two
+    engineers take an unassigned ticket at the same moment, one insert wins and
+    the other does nothing, and is then added as a helper.
 
     Returns:
-        False if they were already on it (joining twice is a no-op).
+        The role they got, or None if they were already on the ticket.
     """
-    return db.execute(
-        "INSERT INTO incident_engineers (incident_id, engineer_id, role, added_by) VALUES (%s, %s, %s, %s)"
-        " ON CONFLICT (incident_id, engineer_id) DO NOTHING",
-        (incident_id, engineer_id, role, engineer_id),
-    ) == 1
+    row = db.fetch_one(
+        "INSERT INTO incident_engineers (incident_id, engineer_id, role, added_by)"
+        " SELECT %(incident_id)s, %(engineer_id)s,"
+        "        CASE WHEN EXISTS (SELECT 1 FROM incident_engineers"
+        "                           WHERE incident_id = %(incident_id)s AND role = 'primary')"
+        "             THEN 'helper' ELSE 'primary' END,"
+        "        %(engineer_id)s"
+        " ON CONFLICT DO NOTHING RETURNING role",
+        {"incident_id": incident_id, "engineer_id": engineer_id},
+    )
+    if row is None:
+        # Already on the ticket, or someone else became primary a moment ago: try as a helper.
+        row = db.fetch_one(
+            "INSERT INTO incident_engineers (incident_id, engineer_id, role, added_by)"
+            " VALUES (%(incident_id)s, %(engineer_id)s, 'helper', %(engineer_id)s)"
+            " ON CONFLICT DO NOTHING RETURNING role",
+            {"incident_id": incident_id, "engineer_id": engineer_id},
+        )
+    return row["role"] if row else None
 
 
 def mark_assigned(incident_id: int) -> None:

@@ -42,8 +42,8 @@ npm run test:coverage    # vitest run --coverage
 
 | Suite | Result |
 | --- | --- |
-| Backend, unit + handler | 408 passed, 8 skipped (integration tests, opt-in) |
-| Backend, with `RUN_INTEGRATION=1` | 416 passed. `public` still has 16 users / 60 incidents afterwards |
+| Backend, unit + handler | 408 passed, 9 skipped (integration tests, opt-in) |
+| Backend, with `RUN_INTEGRATION=1` | 417 passed. `public` still has 16 users / 60 incidents afterwards |
 | Frontend (Vitest) | 35 passed in 6 files |
 
 Backend line coverage (pytest-cov):
@@ -108,6 +108,7 @@ Frontend coverage is 19% of statements. The tested files are well covered:
   - register, login and duplicate register
   - create, then status change, then stale version
   - join twice, resolve, second reopen request (409)
+  - the join race: while engineer A's "take" is still uncommitted on a second connection, engineer B's join waits, then B is added as a helper; the database also refuses a second primary directly
   - void (204, then 404 for the reporter)
   - facilities: duplicate building name and floor renumber hit the UNIQUE constraints (409), deleting a seat, floor or building with an incident is 409, the repository's foreign-key guard rolls the delete back, and an empty building is deleted with its floors and seats
   - recurring detection on a fresh seat: 2 reports are not a pattern, the 3rd badges all three, the similar check sees 3 open duplicates, and voiding one drops the pattern again

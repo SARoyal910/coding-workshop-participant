@@ -390,6 +390,59 @@ def test_recurring_detection_and_missed_shifts(handlers):
     assert row["missed_shifts"] == 1
 
 
+def test_two_engineers_taking_a_ticket_at_once_get_one_primary(handlers, load_service):
+    """
+    The join race: engineer A's "take" is still uncommitted when engineer B takes
+    the same ticket. B's insert waits on the one-primary-per-ticket index, finds A
+    won, and B is added as a helper instead. There is never a second primary.
+    """
+    import threading
+    import time
+
+    from _shared import db
+
+    incidents = handlers["incidents"]
+    reporter_token = login(handlers, "dana.whitfield@acme.inc", TEST_SEED_PASSWORD)
+    _, options = call(incidents, "GET", "/api/incidents/options", token=reporter_token)
+    building = options["buildings"][0]
+    status, ticket = call(incidents, "POST", "/api/incidents", {
+        "title": "Integration test join race", "description": "Two engineers at once.", "category": "IT",
+        "issue_type": "Printer", "building_id": building["id"], "floor_id": building["floors"][0]["id"],
+    }, reporter_token)
+    assert status == 201, ticket
+    ids = {row["email"]: row["id"] for row in db.fetch_all(
+        "SELECT id, email FROM users WHERE email IN ('priya.nair@acme.inc', 'tom.becker@acme.inc')")}
+    engineer_a, engineer_b = ids["priya.nair@acme.inc"], ids["tom.becker@acme.inc"]
+    repository = load_service("incidents").repository
+
+    other = _admin_connection()  # a second, independent connection plays engineer A
+    other.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(TEST_SCHEMA)))
+    result = {}
+    try:
+        with other.transaction():
+            other.execute("INSERT INTO incident_engineers (incident_id, engineer_id, role, added_by)"
+                          " VALUES (%s, %s, 'primary', %s)", (ticket["id"], engineer_a, engineer_a))
+            # B joins now, through the app's own connection; it blocks until A commits.
+            worker = threading.Thread(target=lambda: result.update(role=repository.add_engineer(ticket["id"], engineer_b)))
+            worker.start()
+            time.sleep(1.5)
+            assert worker.is_alive(), "B should be waiting on A's uncommitted primary row"
+        worker.join(timeout=15)
+    finally:
+        other.close()
+
+    assert result["role"] == "helper"
+    roles = db.fetch_all("SELECT engineer_id, role FROM incident_engineers WHERE incident_id = %s ORDER BY role DESC",
+                         (ticket["id"],))
+    assert roles == [{"engineer_id": engineer_a, "role": "primary"}, {"engineer_id": engineer_b, "role": "helper"}]
+
+    # Joining again is still a no-op, and the database itself refuses a second primary.
+    assert repository.add_engineer(ticket["id"], engineer_b) is None
+    with pytest.raises(psycopg.errors.UniqueViolation):
+        db.execute("INSERT INTO incident_engineers (incident_id, engineer_id, role, added_by)"
+                   " VALUES (%s, 1, 'primary', 1)", (ticket["id"],))
+
+
 def test_public_schema_untouched(test_schema):
     """Nothing written by these tests reached the demo data."""
     admin = _admin_connection()

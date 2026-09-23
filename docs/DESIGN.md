@@ -58,7 +58,7 @@ Nothing is hard-deleted. Admin can void an erroneous incident (reason) -> hidden
 
 ## 6. Business rules
 - Priority: reporter or admin can change it; always logs priority_changed event (old, new, reason).
-- Join: any engineer can join a non-archived ticket. First engineer = primary, later = helper. Logged. "Helped others" = count of helper rows.
+- Join: any engineer can join a non-archived ticket. If nobody has taken it, the engineer becomes primary ("Take this ticket"); if it is already taken, they join as a helper ("Join as helper"). The role is decided inside the INSERT and a partial unique index allows one primary per ticket, so two engineers taking it at the same moment give one primary and one helper. Logged. "Helped others" = count of helper rows.
 - Acknowledge: engineer commits to handling it this shift. shift_ends_at computed from engineer shift (day 07-15, swing 15-23, night 23-07). Sets incidents.acknowledged_at on first ack.
 - Missed shift commitment = shift_ends_at < now AND not resolved by shift_ends_at AND not moved to blocked (with reason) before shift_ends_at. Computed at query time.
 - Notes: the reporter, an admin or an engineer on the ticket can add (an engineer who only has read access must join first); shown with author name, role, timestamp. Only author edits; edits set edited_at and log old text to events. No deletion (append-only).

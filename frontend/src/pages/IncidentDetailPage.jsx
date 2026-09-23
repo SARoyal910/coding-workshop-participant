@@ -89,7 +89,19 @@ export default function IncidentDetailPage() {
 
   const actions = incident.allowed_actions;
   const readOnly = incident.is_archived || incident.is_voided;
-  const engineers = incident.engineers.map((engineer) => `${engineer.name}${engineer.role === 'helper' ? ' (helper)' : ''}`);
+  const engineers = incident.engineers.map((engineer) => `${engineer.name} (${engineer.role})`);
+  /**
+   * After joining, say which role the server gave us. If another engineer took
+   * the ticket a moment before us, we were added as a helper instead.
+   * @param {Object} updated
+   * @returns {string}
+   */
+  const joinMessage = (updated) => {
+    const me = updated.engineers.find((engineer) => engineer.id === user.id);
+    if (me?.role === 'primary') return 'You took this ticket. You are the primary engineer.';
+    if (!incident.engineers.length) return 'Another engineer took this ticket just before you, so you joined as a helper.';
+    return 'You joined as a helper';
+  };
   const myAck = incident.acks.find(
     (ack) => ack.engineer_id === user.id && new Date(ack.shift_ends_at) > new Date(),
   );
@@ -97,14 +109,14 @@ export default function IncidentDetailPage() {
   /**
    * Run an action that returns the updated incident, then show a message.
    * @param {function(): Promise<Object|null>} call
-   * @param {string} message
+   * @param {string|function(Object): string} message Text, or built from the updated incident.
    */
   const runAction = async (call, message) => {
     setSaving(true);
     try {
       const updated = await call();
       if (updated) setData(updated); else reload();
-      notify(message);
+      notify(typeof message === 'function' ? message(updated) : message);
       setDialog(null);
       setDecision(null);
     } catch (err) {
@@ -209,8 +221,8 @@ export default function IncidentDetailPage() {
             </Button>
           )}
           {actions.can_join && (
-            <Button variant="contained" color="secondary" onClick={() => runAction(() => incidentsApi.join(incident.id), 'You joined this ticket')} disabled={saving}>
-              {incident.engineers.length ? 'Join to help' : 'Take this ticket'}
+            <Button variant="contained" color="secondary" onClick={() => runAction(() => incidentsApi.join(incident.id), joinMessage)} disabled={saving}>
+              {incident.engineers.length ? 'Join as helper' : 'Take this ticket'}
             </Button>
           )}
           {actions.can_acknowledge && !myAck && (
@@ -254,7 +266,7 @@ export default function IncidentDetailPage() {
       )}
       {actions.can_join && incident.engineers.length > 0 && (
         <Alert severity="info" sx={{ mb: 2 }}>
-          You can view this ticket. Join it to help, add notes or log work.
+          {`${incident.engineers.find((engineer) => engineer.role === 'primary')?.name || 'Another engineer'} has taken this ticket. Join as a helper to add notes or log work.`}
         </Alert>
       )}
       {myAck && (
