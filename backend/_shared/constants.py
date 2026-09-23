@@ -35,3 +35,11 @@ ISSUE_TYPES = {
 
 # Only company addresses may self-register.
 EMAIL_DOMAIN = "acme.inc"
+
+# Recurring issues: at least this many incidents with the same issue type at the
+# same seat (or the same floor) within the window.
+RECURRING_THRESHOLD = 3
+RECURRING_WINDOW_DAYS = 30
+
+# Dashboard time window for speed and communication metrics.
+METRICS_WINDOW_DAYS = 30
