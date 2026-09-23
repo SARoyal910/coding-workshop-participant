@@ -44,17 +44,29 @@ def allowed_transitions(user: dict, status: str, reporter_id: int, engineer_ids:
     ]
 
 
-def can_view(user: dict, reporter_id: int, engineer_ids: set[int]) -> bool:
+def can_view(user: dict, reporter_id: int, engineer_ids: set[int], is_archived: bool = False) -> bool:
     """
     Visibility (DESIGN.md section 6):
-    everyone -> tickets they reported; engineer -> also tickets they're on plus the
-    unassigned pool; admin -> all.
+    - employees see only tickets they reported (anything else is a 404, so they
+      can't find out what exists);
+    - engineers see every active ticket read-only, because helping each other is
+      a core requirement, plus archived tickets they reported or worked on;
+    - admins see everything.
+    Voided tickets are hidden from non-admins by the service layer.
     """
     if user["role"] == "admin" or user["id"] == reporter_id:
         return True
     if user["role"] == "engineer":
-        return user["id"] in engineer_ids or not engineer_ids
+        return user["id"] in engineer_ids or not is_archived
     return False
+
+
+def can_add_note(user: dict, reporter_id: int, engineer_ids: set[int]) -> bool:
+    """
+    The reporter, an admin, or an engineer on the ticket may add notes. Engineers
+    who can only see the ticket must join it first (otherwise 403).
+    """
+    return user["role"] == "admin" or user["id"] == reporter_id or user["id"] in engineer_ids
 
 
 def can_edit_details(user: dict, reporter_id: int) -> bool:

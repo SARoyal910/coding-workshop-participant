@@ -60,7 +60,7 @@ def _load_visible(user: dict, incident_id: int) -> tuple[dict, set[int]]:
     engineer_ids = {engineer["id"] for engineer in repository.get_engineers(incident_id)}
     if incident["is_voided"] and user["role"] != "admin":
         raise NotFound("Incident not found")
-    if not rules.can_view(user, incident["reporter_id"], engineer_ids):
+    if not rules.can_view(user, incident["reporter_id"], engineer_ids, incident["is_archived"]):
         raise NotFound("Incident not found")
     return incident, engineer_ids
 
@@ -94,7 +94,7 @@ def list_incidents(user: dict, params: dict) -> dict:
         "building_id": get_int(params, "building_id", errors, required=False),
         "q": get_string(params, "q", errors, TITLE_MAX, required=False),
         "archived": get_choice(params, "archived", ("true", "false"), errors, default="false") == "true",
-        "scope": get_choice(params, "scope", ("mine", "pool"), errors, required=False),
+        "scope": get_choice(params, "scope", ("mine", "pool", "all"), errors, required=False),
         "pending": get_choice(params, "pending", REQUEST_TYPES, errors, required=False),
     }
     if filters["scope"] and user["role"] != "engineer":
@@ -133,7 +133,7 @@ def get_incident(user: dict, incident_id: int) -> dict:
         "allowed_actions": {
             "transitions": [] if read_only else rules.allowed_transitions(user, status, reporter_id, engineer_ids),
             "can_edit": allowed(rules.can_edit_details(user, reporter_id)),
-            "can_add_note": allowed(True),
+            "can_add_note": allowed(rules.can_add_note(user, reporter_id, engineer_ids)),
             "can_join": allowed(rules.can_join(user, engineer_ids)),
             "can_acknowledge": allowed(rules.can_acknowledge(user, status, engineer_ids)),
             "can_change_priority": allowed(rules.can_change_priority(user, reporter_id)),
@@ -296,9 +296,14 @@ def change_status(user: dict, incident_id: int, data: dict) -> dict:
 
 
 def add_note(user: dict, incident_id: int, data: dict) -> dict:
-    """Add a note. Anyone who can see the ticket may add one; notes are append-only."""
-    incident, _ = _load_visible(user, incident_id)
+    """
+    Add a note (append-only). The reporter, an admin or an engineer on the
+    ticket may add one; an engineer who can only see it gets 403 (join first).
+    """
+    incident, engineer_ids = _load_visible(user, incident_id)
     _ensure_changeable(incident)
+    if not rules.can_add_note(user, incident["reporter_id"], engineer_ids):
+        raise Forbidden("Join this ticket before adding notes")
 
     errors: dict[str, str] = {}
     reject_unknown_fields(data, NOTE_FIELDS, errors)

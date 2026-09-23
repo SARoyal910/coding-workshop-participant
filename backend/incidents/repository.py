@@ -42,9 +42,10 @@ def list_incidents(user: dict, filters: dict, page: int, page_size: int) -> tupl
     conditions = [sql.SQL("NOT i.is_voided"), sql.SQL("i.is_archived = %s")]
     params: list[Any] = [filters.get("archived", False)]
 
-    # Visibility (see rules.can_view).
+    # Visibility (see rules.can_view): engineers see every active ticket, and
+    # archived ones only if they reported or worked on them.
     if user["role"] == "engineer":
-        conditions.append(sql.SQL(f"(i.reporter_id = %s OR {ON_TICKET} OR {UNASSIGNED})"))
+        conditions.append(sql.SQL(f"(NOT i.is_archived OR i.reporter_id = %s OR {ON_TICKET})"))
         params += [user["id"], user["id"]]
     elif user["role"] != "admin":
         conditions.append(sql.SQL("i.reporter_id = %s"))

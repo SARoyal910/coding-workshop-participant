@@ -59,10 +59,10 @@ Nothing is hard-deleted. Admin can void an erroneous incident (reason) -> hidden
 - Join: any engineer can join a non-archived ticket. First engineer = primary, later = helper. Logged. "Helped others" = count of helper rows.
 - Acknowledge: engineer commits to handling it this shift. shift_ends_at computed from engineer shift (day 07-15, swing 15-23, night 23-07). Sets incidents.acknowledged_at on first ack.
 - Missed shift commitment = shift_ends_at < now AND not resolved by shift_ends_at AND not moved to blocked (with reason) before shift_ends_at. Computed at query time.
-- Notes: anyone with access to the ticket can add; shown with author name, role, timestamp. Only author edits; edits set edited_at and log old text to events. No deletion (append-only).
+- Notes: the reporter, an admin or an engineer on the ticket can add (an engineer who only has read access must join first); shown with author name, role, timestamp. Only author edits; edits set edited_at and log old text to events. No deletion (append-only).
 - Work logs: only engineers on the ticket; hours in 0.25 steps, 0.25–12; work_date not in future and not before created_at; editable by author only (logged); locked once archived.
 - Recurring issues: >= 3 incidents with same issue_type at same seat OR same floor within 30 days (constants). Shown on admin dashboard, as a badge on the incident, and as a warning on the create form (similar open incidents at the location).
-- Visibility: employee sees own incidents; engineer sees tickets they're on plus an unassigned pool; admin sees all.
+- Visibility: employee sees only incidents they reported (anyone else's returns 404, so employees can't find out what exists). Engineer sees all active (non-archived, non-voided) incidents read-only, because collaboration is a core requirement (we track how often engineers help each other), plus archived ones they worked on; they can only change incidents they're on (otherwise 403), and any engineer can join any active incident. Engineer list tabs: My tickets (default), Unassigned, All active. Admin sees all, including voided.
 - Issue types (fixed list in code): IT: Wi-Fi, Monitor, Docking station, Printer, Badge reader. Facilities: HVAC, Lighting, Plumbing, Furniture, Cleaning. AV: Projector, Video conferencing, Speakers. Security: Door access, Camera, Lock.
 
 ## 7. Business questions -> features

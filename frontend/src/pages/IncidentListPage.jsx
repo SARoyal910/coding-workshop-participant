@@ -173,6 +173,9 @@ export default function IncidentListPage() {
   const [params, setParams] = useSearchParams();
   const [search, setSearch] = useState(params.get('q') || '');
 
+  // Engineers default to "My tickets"; everyone else sees everything they're allowed to.
+  const isEngineer = user.role === 'engineer';
+  const scope = isEngineer ? params.get('scope') || 'mine' : null;
   const page = Number(params.get('page') || 1);
   const pageSize = Number(params.get('page_size') || 25);
   const queryString = params.toString();
@@ -198,10 +201,11 @@ export default function IncidentListPage() {
     return () => clearTimeout(timer);
   }, [search, params, updateParams]);
 
-  const loader = useCallback(
-    () => incidentsApi.list(Object.fromEntries(new URLSearchParams(queryString))),
-    [queryString],
-  );
+  const loader = useCallback(() => {
+    const query = Object.fromEntries(new URLSearchParams(queryString));
+    if (scope) query.scope = scope;
+    return incidentsApi.list(query);
+  }, [queryString, scope]);
   const {
     data, error, loading, reload,
   } = useApiData(loader);
@@ -227,7 +231,10 @@ export default function IncidentListPage() {
     content = (
       <EmptyState
         title="No incidents found"
-        message={queryString ? 'Try clearing some filters.' : 'Nothing has been reported yet.'}
+        message={(() => {
+          if (scope === 'mine' && !queryString) return "You're not on any tickets yet. Check the Unassigned tab to pick one up.";
+          return queryString ? 'Try clearing some filters.' : 'Nothing has been reported yet.';
+        })()}
       />
     );
   } else if (isMobile) content = <IncidentCards items={data.items} />;
@@ -243,16 +250,16 @@ export default function IncidentListPage() {
       </Stack>
 
       <Paper>
-        {user.role === 'engineer' && (
+        {isEngineer && (
           <Tabs
-            value={params.get('scope') || ''}
-            onChange={(event, value) => updateParams({ scope: value })}
+            value={scope}
+            onChange={(event, value) => updateParams({ scope: value === 'mine' ? '' : value })}
             aria-label="Which incidents"
             sx={{ px: 1, borderBottom: 1, borderColor: 'divider' }}
           >
-            <Tab label="All I can see" value="" />
             <Tab label="My tickets" value="mine" />
-            <Tab label="Unassigned pool" value="pool" />
+            <Tab label="Unassigned" value="pool" />
+            <Tab label="All active" value="all" />
           </Tabs>
         )}
 

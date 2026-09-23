@@ -249,6 +249,11 @@ export default function IncidentDetailPage() {
       {incident.status === 'blocked' && incident.blocked_reason && (
         <Alert severity="error" sx={{ mb: 2 }}>{`Blocked: ${incident.blocked_reason}`}</Alert>
       )}
+      {actions.can_join && incident.engineers.length > 0 && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          You can view this ticket. Join it to help, add notes or log work.
+        </Alert>
+      )}
       {myAck && (
         <Alert severity="success" sx={{ mb: 2 }}>
           {`You acknowledged this ticket for your shift, which ends ${formatDateTime(myAck.shift_ends_at)}.`}
