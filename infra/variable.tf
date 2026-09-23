@@ -83,3 +83,17 @@ variable "aws_eks_type" {
     error_message = "The aws_eks_type variable must be either 'ON_DEMAND' or 'SPOT'."
   }
 }
+
+variable "jwt_secret" {
+  description = "Secret used to sign JWTs. Leave empty to generate one (kept in Terraform state)."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "seed_password" {
+  description = "Password for the seeded demo accounts. Leave empty to generate one (see the seed_password output)."
+  type        = string
+  default     = ""
+  sensitive   = true
+}

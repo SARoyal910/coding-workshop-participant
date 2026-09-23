@@ -58,6 +58,8 @@ locals {
       path             = abspath(format("%s/../backend/%s", path.module, name))
       patterns         = ["!__pycache__/.*", "!\\..*"]
       pip_requirements = true
+      # Shared backend code, packaged into every Python service as the _shared/ package
+      shared_path = abspath(format("%s/../backend/_shared", path.module))
     }
   }
   data_dirs_python = [
@@ -111,6 +113,9 @@ locals {
     MONGO_NAME    = data.aws_caller_identity.this.id == "000000000000" ? "mongo" : try(one(aws_docdb_cluster.this.*.database_name), "")
     MONGO_USER    = data.aws_caller_identity.this.id == "000000000000" ? "" : try(one(aws_docdb_cluster.this.*.master_username), "")
     MONGO_PASS    = data.aws_caller_identity.this.id == "000000000000" ? "" : try(one(aws_docdb_cluster.this.*.master_password), "")
+    # App secrets: taken from TF_VAR_jwt_secret / TF_VAR_seed_password when set, otherwise generated once and kept in state
+    JWT_SECRET    = coalesce(var.jwt_secret, random_password.jwt_secret.result)
+    SEED_PASSWORD = coalesce(var.seed_password, random_password.seed_password.result)
   }
   lambda_role_arn = format(
     "arn:%s:iam::%s:role/%s-lambda-%s-%s",

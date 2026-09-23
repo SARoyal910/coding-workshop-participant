@@ -17,12 +17,20 @@ module "lambda" {
   s3_bucket       = data.aws_caller_identity.this.id != "000000000000" ? format("%s-tfstate-%s", var.aws_project, local.app_id) : null
   s3_prefix       = data.aws_caller_identity.this.id != "000000000000" ? format("lambda/%s/%s/", local.app_id, each.value.name) : null
 
-  source_path = [{
+  # The service folder, plus backend/_shared zipped in as _shared/ for Python services
+  source_path = concat([{
     path             = try(each.value.path, null)
     patterns         = try(each.value.patterns, null)
     pip_requirements = try(each.value.pip_requirements, null)
     npm_requirements = try(each.value.npm_requirements, null)
-  }]
+    prefix_in_zip    = null
+    }], try(each.value.shared_path, null) == null ? [] : [{
+    path             = each.value.shared_path
+    patterns         = ["!__pycache__/.*"]
+    pip_requirements = null
+    npm_requirements = null
+    prefix_in_zip    = "_shared"
+  }])
 
   vpc_security_group_ids = data.aws_security_groups.this.ids
   vpc_subnet_ids         = local.public_subnet_ids

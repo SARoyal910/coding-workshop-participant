@@ -256,3 +256,11 @@ tfplan
 
 # Snyk Security Extension - AI Rules (auto-generated)
 .github/instructions/snyk_rules.instructions.md
+
+# bin/start-dev.sh pip-installs each service's dependencies into its folder.
+# Keep only the service's own source files.
+backend/*/*
+!backend/*/*.py
+!backend/*/requirements.txt
+!backend/_shared/*
+!backend/_examples/*

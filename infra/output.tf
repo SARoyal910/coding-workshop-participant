@@ -45,3 +45,9 @@ output "jupyter_url" {
   description = "The URL of the JupyterHub instance"
   value       = data.aws_caller_identity.this.id == "000000000000" ? "http://localhost:8888" : try(one(aws_eks_cluster.this.*.endpoint), null)
 }
+
+output "seed_password" {
+  description = "Password for the seeded demo accounts (read with: terraform output -raw seed_password)"
+  value       = coalesce(var.seed_password, random_password.seed_password.result)
+  sensitive   = true
+}

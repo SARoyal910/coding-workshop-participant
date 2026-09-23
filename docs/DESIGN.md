@@ -17,8 +17,9 @@
 - backend/engineers/ : engineer profiles CRUD (admin creates engineer users), availability toggle, stats
 - backend/dashboard/ : role-specific metrics
 - backend/dev_server.py : local HTTP server on :8000 mapping /api/<service>/... to that service's handler with a Lambda Function URL-style event (for local dev without LocalStack)
-- bin/sync-shared.sh : copies backend/_shared into each service before run/deploy
-- Deploy day: add `'authorization': headers.authorization || ''` to forwarded headers in bin/proxy-server.js.
+- Packaging: infra/lambda.tf zips backend/_shared into every Python service as `_shared/` (second `source_path` entry), so there are no copies to keep in sync. dev_server.py puts backend/ on sys.path instead.
+- Secrets: JWT_SECRET and SEED_PASSWORD reach Lambdas via infra/locals.tf env_vars; from TF_VAR_jwt_secret / TF_VAR_seed_password if set, otherwise generated once by Terraform (`terraform output -raw seed_password`).
+- bin/proxy-server.js forwards the Authorization header (needed by every authenticated route).
 
 ## 3. Roles
 - employee: self-registers. admin: seeded. engineer: created by admin. "Supervisor" = admin.
