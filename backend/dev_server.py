@@ -139,7 +139,7 @@ class DevRequestHandler(BaseHTTPRequestHandler):
 
     do_GET = do_POST = do_PUT = do_PATCH = do_DELETE = handle_any
 
-    def log_message(self, format: str, *args: object) -> None:  # pylint: disable=redefined-builtin
+    def log_message(self, _format: str, *_args: object) -> None:
         """Silence the default access log; @api_handler already logs one JSON line per request."""
 
 
