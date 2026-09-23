@@ -289,7 +289,7 @@ def test_hours_error_rejects_bad_values(rules, hours, message):
     assert rules.hours_error(hours) == message
 
 
-# ---------- known bug (see README Testing > Known gaps) ----------
+# ---------- regression: NaN hours used to crash (see docs/TESTING.md) ----------
 
 def test_hours_error_rejects_nan(rules):
     """A work log body of {"hours": NaN} should be a 400, not a crash."""
