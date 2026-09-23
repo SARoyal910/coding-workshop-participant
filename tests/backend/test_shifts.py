@@ -1,5 +1,5 @@
 """
-Unit tests for backend/_shared/shifts.py current_or_next_shift.
+Unit tests for backend/_shared/shifts.py: current_or_next_shift and is_on_shift.
 
 Shifts are defined in office time (America/New_York): day 07-15, swing 15-23,
 night 23-07. Inputs and outputs are UTC, so each test writes the office time
@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from _shared.shifts import current_or_next_shift
+from _shared.shifts import current_or_next_shift, is_on_shift
 
 OFFICE = ZoneInfo("America/New_York")
 
@@ -62,3 +62,24 @@ def test_unknown_shift_raises():
     """Only day, swing and night exist."""
     with pytest.raises(KeyError):
         current_or_next_shift("graveyard", office(2026, 1, 15, 10))
+
+
+@pytest.mark.parametrize(("shift", "at", "expected"), [
+    ("day", office(2026, 1, 15, 7), True),        # start instant is on shift
+    ("day", office(2026, 1, 15, 14, 59), True),
+    ("day", office(2026, 1, 15, 15), False),      # end instant is not
+    ("swing", office(2026, 1, 15, 15), True),
+    ("night", office(2026, 1, 16, 2), True),      # after midnight, still the night shift
+    ("night", office(2026, 1, 16, 7), False),
+    ("night", office(2026, 1, 15, 12), False),    # midday: between night shifts
+])
+def test_is_on_shift(shift, at, expected):
+    """Only moments inside the shift window count; exactly one shift is on at any time."""
+    assert is_on_shift(shift, at) is expected
+
+
+@pytest.mark.parametrize("hour", range(24))
+def test_exactly_one_shift_is_on_every_hour(hour):
+    """The three shifts cover the day with no gap and no overlap."""
+    at = office(2026, 3, 10, hour, 30)
+    assert sum(is_on_shift(shift, at) for shift in ("day", "swing", "night")) == 1

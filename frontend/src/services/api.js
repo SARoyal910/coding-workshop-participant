@@ -110,6 +110,7 @@ export const incidentsApi = {
   list: (query) => request('GET', '/incidents', { query }),
   get: (id) => request('GET', `/incidents/${id}`),
   options: () => request('GET', '/incidents/options'),
+  similar: (query) => request('GET', '/incidents/similar', { query }),
   pendingRequests: (query) => request('GET', '/incidents/requests', { query }),
   create: (fields) => request('POST', '/incidents', { body: fields }),
   update: (id, fields) => request('PUT', `/incidents/${id}`, { body: fields }),

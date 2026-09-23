@@ -317,6 +317,79 @@ def test_engineer_accounts_and_availability(handlers):
     assert (status, edited["specialty"], edited["phone"]) == (200, "IT", None)
 
 
+def test_recurring_detection_and_missed_shifts(handlers):
+    """
+    DESIGN.md section 10 against real rows, on a fresh building so seeded data can't interfere:
+    - recurring: 2 reports at a seat is not a pattern, the 3rd is (and badges all three); voided ones don't count
+    - the report form's similar check sees the open duplicates
+    - missed shift commitment: the acked shift ended and the ticket was neither resolved nor blocked in time
+    """
+    from _shared import db
+
+    facilities, incidents, engineers = handlers["facilities"], handlers["incidents"], handlers["engineers"]
+    admin_token = login(handlers, "admin@acme.inc", TEST_SEED_PASSWORD)
+    reporter_token = login(handlers, "dana.whitfield@acme.inc", TEST_SEED_PASSWORD)
+
+    _, building = call(facilities, "POST", "/api/facilities/buildings", {"name": "Integration Recurring", "address": "x"}, admin_token)
+    _, floor = call(facilities, "POST", f"/api/facilities/buildings/{building['id']}/floors", {"number": 1}, admin_token)
+    _, seat = call(facilities, "POST", f"/api/facilities/floors/{floor['id']}/seats", {"code": "IR-1-001"}, admin_token)
+
+    def report(title):
+        status, ticket = call(incidents, "POST", "/api/incidents", {
+            "title": f"Integration test {title}", "description": "Flickers.", "category": "IT", "issue_type": "Monitor",
+            "building_id": building["id"], "floor_id": floor["id"], "seat_id": seat["id"],
+        }, reporter_token)
+        assert status == 201, ticket
+        return ticket["id"]
+
+    def level(incident_id):
+        return (call(incidents, "GET", f"/api/incidents/{incident_id}", token=admin_token)[1]["recurring"] or {}).get("level")
+
+    first, second = report("monitor 1"), report("monitor 2")
+    assert level(first) is None and level(second) is None  # 2 is below the threshold
+    third = report("monitor 3")
+    assert [level(i) for i in (first, second, third)] == ["seat", "seat", "seat"]
+    detail = call(incidents, "GET", f"/api/incidents/{first}", token=admin_token)[1]["recurring"]
+    assert (detail["count"], sorted(r["id"] for r in detail["related"])) == (3, sorted([second, third]))
+
+    query = {"issue_type": "Monitor", "floor_id": str(floor["id"]), "seat_id": str(seat["id"])}
+    response = incidents(make_event("GET", "/api/incidents/similar", token=reporter_token, query=query))
+    similar = response_json(response)
+    assert (similar["open_count"], similar["recurring"]["level"]) == (3, "seat")
+
+    # Voiding one drops the pattern below the threshold again.
+    version = call(incidents, "GET", f"/api/incidents/{third}", token=admin_token)[1]["version"]
+    assert incidents(make_event("DELETE", f"/api/incidents/{third}", {"version": version, "reason": "Duplicate"},
+                                admin_token))["statusCode"] == 204
+    assert level(first) is None
+
+    # Missed shift commitments, for a brand-new engineer (so seeded acks can't interfere).
+    _, engineer = call(engineers, "POST", "/api/engineers", {
+        "name": "Integration Shift", "email": "integration.shift@acme.inc", "password": "a-long-password",
+        "specialty": "IT", "shift": "day"}, admin_token)
+    four = report("monitor 4")
+
+    def ack(incident_id, hours_ago_start, hours_ago_end):
+        db.execute(
+            "INSERT INTO incident_acks (incident_id, engineer_id, acknowledged_at, shift_ends_at)"
+            " VALUES (%s, %s, now() - make_interval(hours => %s), now() - make_interval(hours => %s))",
+            (incident_id, engineer["id"], hours_ago_start, hours_ago_end),
+        )
+
+    ack(first, 10, 2)    # shift over, still open -> missed
+    ack(second, 10, 2)   # shift over, but blocked during the shift -> not missed
+    db.execute("INSERT INTO incident_events (incident_id, actor_id, type, from_value, to_value, created_at)"
+               " VALUES (%s, %s, 'status_changed', 'open', 'blocked', now() - interval '5 hours')",
+               (second, engineer["id"]))
+    ack(four, 10, 2)     # resolved before the shift ended -> not missed
+    db.execute("UPDATE incidents SET resolved_at = now() - interval '3 hours' WHERE id = %s", (four,))
+    ack(four, 1, -5)     # shift still running -> not missed (yet)
+
+    listing = call(engineers, "GET", "/api/engineers", token=admin_token)[1]
+    row = next(item for item in listing["items"] if item["id"] == engineer["id"])
+    assert row["missed_shifts"] == 1
+
+
 def test_public_schema_untouched(test_schema):
     """Nothing written by these tests reached the demo data."""
     admin = _admin_connection()
@@ -329,9 +402,9 @@ def test_public_schema_untouched(test_schema):
             "SELECT count(*) FROM public.buildings WHERE name LIKE 'Integration %'"
         ).fetchone()[0] == 0
         assert admin.execute(
-            "SELECT count(*) FROM public.users WHERE email IN (%s, %s, %s, %s)",
+            "SELECT count(*) FROM public.users WHERE email IN (%s, %s, %s, %s, %s)",
             ("integration.tester@acme.inc", "reporter.int@acme.inc", "reporter2.int@acme.inc",
-             "integration.engineer@acme.inc"),
+             "integration.engineer@acme.inc", "integration.shift@acme.inc"),
         ).fetchone()[0] == 0
     finally:
         admin.close()

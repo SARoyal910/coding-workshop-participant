@@ -8,11 +8,13 @@ audit log point at them; an admin marks them unavailable instead.
 """
 
 import re
+from datetime import datetime, timezone
 
 import repository
 from _shared.auth import hash_password
 from _shared.constants import METRICS_WINDOW_DAYS, SHIFTS, SPECIALTIES
 from _shared.errors import Conflict, Forbidden, NotFound
+from _shared.shifts import is_on_shift
 from _shared.validation import (
     NAME_MAX,
     get_acme_email,
@@ -36,8 +38,12 @@ PHONE_PATTERN = re.compile(r"^[0-9+()\-. ]{7,30}$")
 
 
 def _with_flags(engineer: dict) -> dict:
-    """Add needs_reassignment: unavailable but still primary on active tickets (DESIGN.md 13.4)."""
+    """
+    Add needs_reassignment (unavailable but still primary on active tickets,
+    DESIGN.md 13.4) and on_shift_now (their shift is running right now).
+    """
     engineer["needs_reassignment"] = not engineer["is_available"] and engineer["active_primary"] > 0
+    engineer["on_shift_now"] = is_on_shift(engineer["shift"], datetime.now(timezone.utc))
     return engineer
 
 

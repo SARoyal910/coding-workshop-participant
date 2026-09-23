@@ -42,26 +42,26 @@ npm run test:coverage    # vitest run --coverage
 
 | Suite | Result |
 | --- | --- |
-| Backend, unit + handler | 361 passed, 7 skipped (integration tests, opt-in) |
-| Backend, with `RUN_INTEGRATION=1` | 368 passed. `public` still has 16 users / 60 incidents afterwards |
-| Frontend (Vitest) | 30 passed in 5 files |
+| Backend, unit + handler | 408 passed, 8 skipped (integration tests, opt-in) |
+| Backend, with `RUN_INTEGRATION=1` | 416 passed. `public` still has 16 users / 60 incidents afterwards |
+| Frontend (Vitest) | 35 passed in 6 files |
 
 Backend line coverage (pytest-cov):
 
 | Module | Unit only | With integration |
 | --- | --- | --- |
 | `incidents/rules.py` | 100% | 100% |
-| `_shared/http.py`, `auth.py`, `shifts.py`, `errors.py` | 100% | 100% |
+| `_shared/http.py`, `auth.py`, `shifts.py`, `errors.py`, `engineer_stats.py` | 100% | 100% |
 | `_shared/validation.py` | 99% | 99% |
 | `auth/service.py`, `auth/function.py` | 100% | 100% |
-| `incidents/service.py` | 58% | 64% |
-| `incidents/repository.py` | 39% | 55% |
+| `incidents/service.py` | 58% | 68% |
+| `incidents/repository.py` | 39% | 57% |
 | `engineers/service.py`, `engineers/function.py` | 74%, 88% | 100%, 100% |
 | `facilities/service.py`, `facilities/repository.py` | 51%, 27% | 81%, 68% |
 | `dashboard/*` | 0% | 0% |
-| **Total (`_shared`, `auth`, `incidents`, `dashboard`, `facilities`, `engineers`)** | **61%** | **80%** |
+| **Total (`_shared`, `auth`, `incidents`, `dashboard`, `facilities`, `engineers`)** | **63%** | **80%** |
 
-Frontend coverage is 17% of statements. The tested files are well covered:
+Frontend coverage is 19% of statements. The tested files are well covered:
 `StatusChip`, `WorkflowStepper` and `LoginPage` are at 100% of lines,
 `FormDialog` is at 97% and `services/api.js` is at 62%. Every other page and component is at 0%.
 
@@ -76,6 +76,7 @@ Frontend coverage is 17% of statements. The tested files are well covered:
   - who may add notes (`can_add_note`)
   - join, acknowledge, priority, reopen, decide, void and work-log permissions
   - `hours_error` (0.25 steps, 0.25 to 12)
+  - `recurring_level`: the threshold boundary (2 is not recurring, 3 is), seat beats floor, and a floor pattern needs more than one seat
 - **Validation** (`_shared/validation.py`):
   - `@acme.inc` emails, including uppercase and look-alike domains such as `a@acme.inc.evil.com` and `a@notacme.inc`
   - trimming and length limits
@@ -90,7 +91,7 @@ Frontend coverage is 17% of statements. The tested files are well covered:
   - the error mapping, including a generic 500 that never leaks the exception
   - the one-line request log, which never contains the body or the token
 - **Tokens** (`_shared/auth.py`): expired, forged and `alg: none` tokens, the role check (403), the 8h lifetime and a missing secret.
-- **Shifts**: day, swing and night shifts, the night shift across midnight, the time between shifts (the next shift is returned), both edges of a shift and summer time.
+- **Shifts**: day, swing and night shifts, the night shift across midnight, the time between shifts (the next shift is returned), both edges of a shift and summer time. `is_on_shift` includes the start and excludes the end, and for every hour of the day exactly one shift is on.
 - **Handlers, with the repository faked**. These tests go through `function.handler`, so routing, token checks and error mapping run too:
   - 401: no token, bad token
   - 404: unknown route, missing ticket, another employee's ticket (404, not 403), an archived ticket the engineer was not on, a voided ticket for non-admins
@@ -101,6 +102,7 @@ Frontend coverage is 17% of statements. The tested files are well covered:
   - facilities (admin only): 401/403 for other roles; 400 for blank or unknown fields and out-of-range floor numbers; 409 for a duplicate name and for deleting a place with incidents, including the race where an incident arrives between the check and the delete; 404 for missing buildings
   - engineers: 403 for employees and for non-admins creating accounts; `role` rejected as an unknown field; 400 for a bad email, shift, phone or a non-boolean `is_available`; 409 for a taken email (no profile written); 403 when an engineer changes someone else's availability; `needs_reassignment` when going unavailable with active tickets
   - approvals queue: admin only, `?type=` filter, unknown type is 400
+  - recurring and similar: staff get the related tickets and every open duplicate; employees get the counts and only their own tickets (never other people's); bad or unknown `similar` parameters are 400
   - auth: register with a non-acme email (400), with a `role` field (400), with a duplicate email (409); login with a wrong password or an unknown user gives the same 401 message; `/me` without a token (401); refresh; health (200/503)
 - **Integration** (real PostgreSQL, `test` schema):
   - register, login and duplicate register
@@ -108,10 +110,14 @@ Frontend coverage is 17% of statements. The tested files are well covered:
   - join twice, resolve, second reopen request (409)
   - void (204, then 404 for the reporter)
   - facilities: duplicate building name and floor renumber hit the UNIQUE constraints (409), deleting a seat, floor or building with an incident is 409, the repository's foreign-key guard rolls the delete back, and an empty building is deleted with its floors and seats
+  - recurring detection on a fresh seat: 2 reports are not a pattern, the 3rd badges all three, the similar check sees 3 open duplicates, and voiding one drops the pattern again
+  - missed shift commitments: an acknowledged shift that ended with the ticket still open counts; one blocked during the shift, one resolved before the shift ended and a shift still running do not
   - engineers: an admin creates an engineer who can then log in, duplicate email is 409, the list is sorted by workload, availability rules and profile edits
 - **Frontend**:
   - `StatusChip` labels and the archived state
   - `WorkflowStepper`: active and completed steps, blocked shown as an error on "In progress", archived shows every step complete
+  - `RecurringBadge`: nothing without a level, text label (not color alone)
+  - `SimilarIncidentsWarning`: no request until issue type and floor are chosen, duplicate links and the recurring warning, silent when nothing matches
   - `FormDialog`: required fields checked before sending, trimmed values with null for empty optional fields, API field errors shown under the field, other errors shown at the top
   - `LoginPage`: the server's "Invalid email or password" in the alert, email trimming, redirect after login
   - `api.js` error mapping: 401 calls the logout handler only when a session exists, a network failure shows the friendly message, 400/409 keep their details, the default 403 message, a non-JSON error body, 204, and the query string
@@ -122,13 +128,12 @@ Frontend coverage is 17% of statements. The tested files are well covered:
   - `{"hours": NaN}` on a work log. Python's `json.loads` accepts `NaN`. Fixed: `get_number` rejects non-finite numbers, and `rules.hours_error` also returns an error for NaN.
   - Non-ASCII digits such as `"²"` in `?page=²` or `/api/incidents/²`. `str.isdigit()` is True for them, but `int()` rejects them. Fixed: `get_int` and `match_route` accept only ASCII `0-9` (`isascii()` + `isdecimal()`).
 - **Coverage is below the 80% target.**
-  - Backend: 80% with integration tests, 61% without.
-  - Frontend: 17%.
+  - Backend: 80% with integration tests, 63% without.
+  - Frontend: 19%.
   - The dashboard service has no tests at all (0%).
   - The success paths of acknowledge, priority, request decisions and work-log edits are not tested.
   - The incident list, detail, form, register, dashboard, facilities, engineers and approvals pages have no tests (the new pages were checked in the browser, see below).
-  - Recurring-issue detection and missed-shift metrics (DESIGN.md section 10) are not tested yet.
 - **Integration tests are opt-in** (`RUN_INTEGRATION=1`) and need a reachable PostgreSQL. CI doesn't run any tests yet: the workflows only run bandit, npm audit and terraform checks.
-- **No end-to-end browser suite is committed.** During development each feature was checked end to end with headless-browser (Playwright) runs against a throwaway database schema. These covered login errors, the dashboards, filtering, reporting through the form, the workflow dialogs, reopen and approval, void, the engineer tabs, the facilities, engineers and approvals pages (including role-based navigation and redirects), the mobile layout and session expiry, with no console errors or 5xx responses. Those scripts are not part of the repo, so this is manual validation rather than an automated suite.
+- **No end-to-end browser suite is committed.** During development each feature was checked end to end with headless-browser (Playwright) runs against a throwaway database schema. These covered login errors, the dashboards, filtering, reporting through the form, the workflow dialogs, reopen and approval, void, the engineer tabs, the facilities, engineers and approvals pages (including role-based navigation and redirects), the recurring badges and report-form warning, the mobile layout and session expiry, with no console errors or 5xx responses. Those scripts are not part of the repo, so this is manual validation rather than an automated suite.
 - **No load, performance or security testing** (beyond bandit and `npm audit`).
 - The handler tests use a fake repository, so they check the service logic but not the SQL. The SQL is only checked by the integration tests.

@@ -10,6 +10,7 @@ import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { ErrorState, LoadingState } from '../components/PageState';
+import SimilarIncidentsWarning from '../components/SimilarIncidentsWarning';
 import useNotify from '../hooks/useNotify';
 import useApiData from '../hooks/useApiData';
 import { incidentsApi } from '../services/api';
@@ -202,6 +203,8 @@ export default function IncidentFormPage() {
               </TextField>
             </Grid>
           </Grid>
+
+          <SimilarIncidentsWarning issueType={values.issue_type} floorId={values.floor_id} seatId={values.seat_id} />
 
           <Stack direction="row" spacing={1.5} sx={{ justifyContent: 'flex-end' }}>
             <Button onClick={() => navigate(-1)} disabled={submitting}>Cancel</Button>

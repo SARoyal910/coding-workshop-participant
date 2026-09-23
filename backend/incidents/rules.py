@@ -132,3 +132,24 @@ def hours_error(hours: float) -> str | None:
     if round(hours / HOURS_STEP) * HOURS_STEP != hours:
         return f"Must be in steps of {HOURS_STEP} hours (15 minutes)"
     return None
+
+
+def recurring_level(seat_count: int, floor_count: int, floor_seats: int, threshold: int) -> str | None:
+    """
+    Decide whether incidents of one issue type form a recurring pattern (DESIGN.md section 6).
+
+    Args:
+        seat_count: incidents of this issue type at the same seat in the window.
+        floor_count: incidents of this issue type anywhere on the same floor in the window.
+        floor_seats: how many different seats those floor incidents are at.
+        threshold: RECURRING_THRESHOLD (3).
+
+    Returns:
+        "seat" if the seat alone reaches the threshold, "floor" if the floor does
+        across more than one seat (the dashboard uses the same split), else None.
+    """
+    if seat_count >= threshold:
+        return "seat"
+    if floor_count >= threshold and floor_seats > 1:
+        return "floor"
+    return None

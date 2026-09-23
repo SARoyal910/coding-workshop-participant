@@ -294,3 +294,19 @@ def test_hours_error_rejects_bad_values(rules, hours, message):
 def test_hours_error_rejects_nan(rules):
     """A work log body of {"hours": NaN} should be a 400, not a crash."""
     assert rules.hours_error(float("nan")) is not None
+
+
+# ---------- recurring issues (DESIGN.md 6 and 13.9: threshold boundaries 2 vs 3) ----------
+
+@pytest.mark.parametrize(("seat_count", "floor_count", "floor_seats", "expected"), [
+    (2, 2, 1, None),       # two at one seat: not yet recurring
+    (3, 3, 1, "seat"),     # the third at the same seat makes it recurring
+    (5, 7, 3, "seat"),     # a seat pattern wins over the floor pattern
+    (1, 2, 2, None),       # two on the floor: not yet
+    (1, 3, 2, "floor"),    # three across two seats on one floor
+    (1, 3, 1, None),       # three on the floor, but only one seat among them (the others are floor-wide)
+    (0, 4, 3, "floor"),    # a floor-wide report (no seat) can still be part of a floor pattern
+])
+def test_recurring_level_threshold_boundaries(rules, seat_count, floor_count, floor_seats, expected):
+    """At least 3 of the same issue type at a seat, or on a floor across more than one seat."""
+    assert rules.recurring_level(seat_count, floor_count, floor_seats, threshold=3) == expected

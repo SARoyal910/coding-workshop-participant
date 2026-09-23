@@ -22,6 +22,7 @@ import HistoryPanel from '../components/HistoryPanel';
 import NotesPanel from '../components/NotesPanel';
 import { ErrorState, LoadingState } from '../components/PageState';
 import PriorityChip from '../components/PriorityChip';
+import RecurringBadge, { RecurringAlert } from '../components/RecurringBadge';
 import RequestsPanel from '../components/RequestsPanel';
 import StatusChip from '../components/StatusChip';
 import TransitionDialog from '../components/TransitionDialog';
@@ -194,6 +195,7 @@ export default function IncidentDetailPage() {
           <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
             <StatusChip status={incident.status} archived={incident.is_archived} size="medium" />
             <PriorityChip priority={incident.priority} size="medium" />
+            <RecurringBadge level={incident.recurring?.level} size="medium" />
           </Stack>
         </Box>
         <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start', flexWrap: 'wrap', gap: 1 }}>
@@ -246,6 +248,7 @@ export default function IncidentDetailPage() {
       {incident.is_archived && (
         <Alert severity="info" sx={{ mb: 2 }}>This ticket is archived and read-only.</Alert>
       )}
+      <RecurringAlert incident={incident} />
       {incident.status === 'blocked' && incident.blocked_reason && (
         <Alert severity="error" sx={{ mb: 2 }}>{`Blocked: ${incident.blocked_reason}`}</Alert>
       )}

@@ -7,6 +7,8 @@ route needs a Bearer token.
                                     &building_id= &q= &archived=true &scope=mine|pool
     POST /                       -> 201 incident          report a new incident
     GET  /options                -> 200 form options      issue types, priorities, locations
+    GET  /similar                -> 200 {open_count, items, recurring}  report-form duplicate warning
+                                    ?issue_type= &floor_id= &seat_id=
     GET  /requests               -> 200 {items, total, page, page_size}  admin: pending requests
                                     ?type=close_approval|reopen &page= &page_size=
     GET  /{id}                   -> 200 incident          with engineers, notes, events, allowed_actions
@@ -58,6 +60,11 @@ def create_incident(event: dict, user: dict, params: dict) -> dict:
 def form_options(event: dict, user: dict, params: dict) -> dict:
     """GET /options"""
     return json_response(200, service.form_options())
+
+
+def similar_incidents(event: dict, user: dict, params: dict) -> dict:
+    """GET /similar"""
+    return json_response(200, service.similar_incidents(user, get_query_params(event)))
 
 
 def list_pending_requests(event: dict, user: dict, params: dict) -> dict:
@@ -139,6 +146,7 @@ ROUTES = [
     ("GET", "/", list_incidents),
     ("POST", "/", create_incident),
     ("GET", "/options", form_options),
+    ("GET", "/similar", similar_incidents),
     ("GET", "/requests", list_pending_requests),
     ("GET", "/{id}", get_incident),
     ("PUT", "/{id}", update_incident),

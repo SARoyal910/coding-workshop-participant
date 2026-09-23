@@ -27,7 +27,7 @@ import useAuth from '../hooks/useAuth';
 import useApiData from '../hooks/useApiData';
 import { dashboardApi } from '../services/api';
 import {
-  CATEGORY_LABELS, PRIORITY_LABELS, formatDateTime, formatHours,
+  CATEGORY_LABELS, PRIORITY_LABELS, SHIFT_LABELS, formatDateTime, formatHours,
 } from '../constants';
 
 /** Bar color: slot 1 of the validated data-viz palette (passes lightness, chroma and contrast checks). */
@@ -326,6 +326,15 @@ function AdminDashboard({ data }) {
       </Section>
 
       <Section title="Engineers" question="Which engineers are available, and how is work distributed across them?">
+        <Box sx={{ mb: 2 }}>
+          <TileRow tiles={data.shift_coverage.map((shift) => ({
+            label: `${SHIFT_LABELS[shift.shift]}${shift.is_current ? ' · on now' : ''}`,
+            value: `${shift.available}/${shift.engineers}`,
+            caption: `available · ${shift.active_primary} active tickets · ${shift.missed_shifts} missed`,
+            tone: shift.engineers && !shift.available ? 'error.main' : undefined,
+          }))}
+          />
+        </Box>
         <Paper>
           <SimpleTable
             label="Engineer workload"
@@ -336,12 +345,13 @@ function AdminDashboard({ data }) {
               ['Engineer', (row) => (
                 <Box>
                   <Typography variant="body2" sx={{ fontWeight: 600 }}>{row.name}</Typography>
-                  <Typography variant="caption" color="text.secondary">{`${CATEGORY_LABELS[row.specialty]} · ${row.shift} shift`}</Typography>
+                  <Typography variant="caption" color="text.secondary">{`${CATEGORY_LABELS[row.specialty]} · ${SHIFT_LABELS[row.shift]}`}</Typography>
                 </Box>
               )],
               ['Status', (row) => (
                 <Stack direction="row" spacing={0.5}>
                   <Chip size="small" color={row.is_available ? 'success' : 'default'} label={row.is_available ? 'Available' : 'Unavailable'} />
+                  {row.on_shift_now && <Chip size="small" color="info" variant="outlined" label="On shift now" />}
                   {row.needs_reassignment && <Chip size="small" color="warning" label="Needs reassignment" />}
                 </Stack>
               )],
@@ -410,6 +420,7 @@ function EngineerDashboard({ data }) {
       </Section>
       <Section title={`My last ${data.window_days} days`}>
         <TileRow tiles={[
+          { label: 'My shift', value: me.on_shift_now ? 'On now' : 'Off shift', caption: SHIFT_LABELS[me.shift] },
           { label: 'Hours logged', value: Number(me.hours_logged || 0).toFixed(2) },
           { label: 'Tickets helped on', value: me.helped_others },
           {

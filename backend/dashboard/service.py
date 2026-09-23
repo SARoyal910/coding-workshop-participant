@@ -5,13 +5,17 @@ The admin dashboard answers the seven business questions (DESIGN.md section 7).
 Engineers and employees get a short summary of their own work.
 """
 
+from datetime import datetime, timezone
+
 import repository
 from _shared.constants import (
     METRICS_WINDOW_DAYS,
     RECURRING_THRESHOLD,
     RECURRING_WINDOW_DAYS,
+    SHIFTS,
     STATUSES,
 )
+from _shared.shifts import is_on_shift
 
 
 def _percent(part: int, whole: int) -> int | None:
@@ -26,6 +30,22 @@ def _status_counts(rows: list[dict]) -> dict[str, int]:
     return counts
 
 
+def _shift_coverage(engineers: list[dict]) -> list[dict]:
+    """Per shift: how many engineers work it, how many are available, and whether it is running now."""
+    coverage = []
+    for shift in SHIFTS:
+        on_shift = [engineer for engineer in engineers if engineer["shift"] == shift]
+        coverage.append({
+            "shift": shift,
+            "engineers": len(on_shift),
+            "available": sum(1 for engineer in on_shift if engineer["is_available"]),
+            "active_primary": sum(engineer["active_primary"] for engineer in on_shift),
+            "missed_shifts": sum(engineer["missed_shifts"] for engineer in on_shift),
+            "is_current": any(engineer["on_shift_now"] for engineer in on_shift),
+        })
+    return coverage
+
+
 def admin_dashboard() -> dict:
     """Everything a supervisor needs, grouped by business question."""
     issue_types = repository.issue_types(METRICS_WINDOW_DAYS)
@@ -34,8 +54,10 @@ def admin_dashboard() -> dict:
         categories[row["category"]] = categories.get(row["category"], 0) + row["count"]
 
     engineers = repository.engineer_workload(METRICS_WINDOW_DAYS)
+    now = datetime.now(timezone.utc)
     for engineer in engineers:
         del engineer["total"]  # paging count, not needed here
+        engineer["on_shift_now"] = is_on_shift(engineer["shift"], now)
         # 13.4: an unavailable engineer who is still primary on active tickets needs cover.
         engineer["needs_reassignment"] = not engineer["is_available"] and engineer["active_primary"] > 0
 
@@ -59,6 +81,7 @@ def admin_dashboard() -> dict:
         "response_times": repository.response_times(METRICS_WINDOW_DAYS),
         # 4. Who is available, and how is work spread?
         "engineers": engineers,
+        "shift_coverage": _shift_coverage(engineers),
         # 5. What are the most common issues?
         "categories": [{"category": name, "count": count} for name, count in categories.items()],
         "issue_types": issue_types,
@@ -86,6 +109,7 @@ def engineer_dashboard(user: dict) -> dict:
     workload = repository.engineer_workload(METRICS_WINDOW_DAYS, engineer_id=user["id"])
     for row in workload:
         del row["total"]
+        row["on_shift_now"] = is_on_shift(row["shift"], datetime.now(timezone.utc))
     return {
         "role": "engineer",
         "window_days": METRICS_WINDOW_DAYS,

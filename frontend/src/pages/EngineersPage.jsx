@@ -65,6 +65,7 @@ const engineerShape = PropTypes.shape({
   hours_logged: PropTypes.oneOfType([PropTypes.number, PropTypes.string]).isRequired,
   missed_shifts: PropTypes.number.isRequired,
   needs_reassignment: PropTypes.bool.isRequired,
+  on_shift_now: PropTypes.bool.isRequired,
 });
 
 /**
@@ -101,14 +102,15 @@ Availability.propTypes = {
 };
 
 /**
- * Warning chips: needs reassignment, missed shift commitments.
+ * Status chips: on shift now, needs reassignment, missed shift commitments.
  * @param {{engineer: Object}} props
  * @returns {JSX.Element|null}
  */
 function Flags({ engineer }) {
-  if (!engineer.needs_reassignment && !engineer.missed_shifts) return null;
+  if (!engineer.on_shift_now && !engineer.needs_reassignment && !engineer.missed_shifts) return null;
   return (
     <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap', gap: 0.5 }}>
+      {engineer.on_shift_now && <Chip size="small" color="info" variant="outlined" label="On shift now" />}
       {engineer.needs_reassignment && (
         <Tooltip title="Unavailable but still primary on active tickets">
           <Chip size="small" color="warning" icon={<WarningAmberIcon />} label="Needs reassignment" />
@@ -231,7 +233,7 @@ export default function EngineersPage() {
               <TableCell align="right">Active (primary / helping)</TableCell>
               <TableCell align="right">Helped others</TableCell>
               <TableCell align="right">Hours (30 days)</TableCell>
-              <TableCell>Flags</TableCell>
+              <TableCell>Shift and flags</TableCell>
               {isAdmin && <TableCell aria-label="Actions" />}
             </TableRow>
           </TableHead>

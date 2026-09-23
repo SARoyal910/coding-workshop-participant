@@ -10,7 +10,14 @@ from datetime import datetime, timezone
 
 import repository
 import rules
-from _shared.constants import ISSUE_TYPES, PRIORITIES, REQUEST_TYPES, STATUSES
+from _shared.constants import (
+    ISSUE_TYPES,
+    PRIORITIES,
+    RECURRING_THRESHOLD,
+    RECURRING_WINDOW_DAYS,
+    REQUEST_TYPES,
+    STATUSES,
+)
 from _shared.errors import Conflict, Forbidden, NotFound, ValidationError
 from _shared.shifts import OFFICE_TZ, current_or_next_shift
 from _shared.validation import (
@@ -38,6 +45,9 @@ DECISION_FIELDS = {"decision", "note"}
 VOID_FIELDS = {"version", "reason"}
 WORK_LOG_FIELDS = {"work_date", "hours", "description"}
 REQUEST_LIST_PARAMS = {"page", "page_size", "type"}
+SIMILAR_PARAMS = {"issue_type", "floor_id", "seat_id"}
+ALL_ISSUE_TYPES = tuple(issue for issues in ISSUE_TYPES.values() for issue in issues)
+SIMILAR_LIMIT = 5
 LIST_FILTERS = {
     "page", "page_size", "status", "priority", "category", "building_id", "q", "archived", "scope", "pending",
 }
@@ -79,6 +89,41 @@ def _read_version(data: dict, errors: dict) -> int | None:
     return get_int(data, "version", errors)
 
 
+def _recurring_levels(incident_ids: list[int]) -> dict[int, str | None]:
+    """Recurring level ("seat", "floor" or None) for each incident, from one grouped query."""
+    counts = repository.recurring_counts(incident_ids, RECURRING_WINDOW_DAYS) if incident_ids else {}
+    return {
+        incident_id: rules.recurring_level(**counts[incident_id], threshold=RECURRING_THRESHOLD)
+        if incident_id in counts else None
+        for incident_id in incident_ids
+    }
+
+
+def _recurring_detail(user: dict, incident: dict) -> dict | None:
+    """
+    The recurring badge for one incident, or None.
+
+    Staff also get the related tickets (engineers only active ones they can
+    open). Employees get the count only: they never see other people's tickets.
+    """
+    counts = repository.recurring_counts([incident["id"]], RECURRING_WINDOW_DAYS).get(incident["id"])
+    level = rules.recurring_level(**counts, threshold=RECURRING_THRESHOLD) if counts else None
+    if level is None:
+        return None
+    related = []
+    if user["role"] in ("admin", "engineer"):
+        related = repository.related_incidents(
+            incident["id"], same_seat=level == "seat", days=RECURRING_WINDOW_DAYS,
+            include_archived=user["role"] == "admin",
+        )
+    return {
+        "level": level,
+        "count": counts["seat_count"] if level == "seat" else counts["floor_count"],
+        "window_days": RECURRING_WINDOW_DAYS,
+        "related": related,
+    }
+
+
 # ---------- queries ----------
 
 def list_incidents(user: dict, params: dict) -> dict:
@@ -103,6 +148,9 @@ def list_incidents(user: dict, params: dict) -> dict:
     raise_if_errors(errors)
 
     items, total = repository.list_incidents(user, filters, page, page_size)
+    levels = _recurring_levels([item["id"] for item in items])
+    for item in items:
+        item["recurring"] = levels[item["id"]]
     return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
@@ -131,6 +179,7 @@ def get_incident(user: dict, incident_id: int) -> dict:
         "requests": requests,
         "acks": repository.get_acks(incident_id),
         "events": repository.get_events(incident_id),
+        "recurring": _recurring_detail(user, incident),
         "allowed_actions": {
             "transitions": [] if read_only else rules.allowed_transitions(user, status, reporter_id, engineer_ids),
             "can_edit": allowed(rules.can_edit_details(user, reporter_id)),
@@ -167,6 +216,42 @@ def list_pending_requests(user: dict, params: dict) -> dict:
 
     items, total = repository.list_pending_requests(request_type, page, page_size)
     return {"items": items, "total": total, "page": page, "page_size": page_size}
+
+
+def similar_incidents(user: dict, params: dict) -> dict:
+    """
+    For the report form: active incidents of the same issue type at the chosen
+    seat (or floor, without a seat), and whether this place already has a
+    recurring pattern in the last RECURRING_WINDOW_DAYS days.
+
+    Employees see only their own matching tickets in "items" (plus a count of
+    everyone's), so they can't browse other people's reports.
+
+    Returns:
+        {"open_count", "items", "recurring": {"level", "count", "window_days"} | None}
+    """
+    errors: dict[str, str] = {}
+    reject_unknown_fields(params, SIMILAR_PARAMS, errors)
+    issue_type = get_choice(params, "issue_type", ALL_ISSUE_TYPES, errors)
+    floor_id = get_int(params, "floor_id", errors)
+    seat_id = get_int(params, "seat_id", errors, required=False)
+    raise_if_errors(errors)
+
+    active = repository.open_at_location(issue_type, floor_id, seat_id, limit=100)
+    visible = active if user["role"] in ("admin", "engineer") else [
+        item for item in active if item["reporter_id"] == user["id"]
+    ]
+    counts = repository.recent_counts_at_location(issue_type, floor_id, seat_id, RECURRING_WINDOW_DAYS)
+    level = rules.recurring_level(**counts, threshold=RECURRING_THRESHOLD)
+    return {
+        "open_count": len(active),
+        "items": visible[:SIMILAR_LIMIT],
+        "recurring": None if level is None else {
+            "level": level,
+            "count": counts["seat_count"] if level == "seat" else counts["floor_count"],
+            "window_days": RECURRING_WINDOW_DAYS,
+        },
+    }
 
 
 def form_options() -> dict:

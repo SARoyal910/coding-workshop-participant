@@ -28,6 +28,7 @@ import Typography from '@mui/material/Typography';
 import AddIcon from '@mui/icons-material/Add';
 import SearchIcon from '@mui/icons-material/Search';
 import PriorityChip from '../components/PriorityChip';
+import RecurringBadge from '../components/RecurringBadge';
 import StatusChip from '../components/StatusChip';
 import { EmptyState, ErrorState, LoadingState } from '../components/PageState';
 import useAuth from '../hooks/useAuth';
@@ -48,6 +49,7 @@ const incidentShape = PropTypes.shape({
   category: PropTypes.string.isRequired,
   issue_type: PropTypes.string.isRequired,
   is_archived: PropTypes.bool,
+  recurring: PropTypes.oneOf(['seat', 'floor', null]),
   building_name: PropTypes.string.isRequired,
   floor_number: PropTypes.number.isRequired,
   seat_code: PropTypes.string,
@@ -100,9 +102,12 @@ function IncidentTable({ items, onOpen }) {
                 >
                   {incident.title}
                 </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  {`by ${incident.reporter_name}`}
-                </Typography>
+                <Stack direction="row" sx={{ alignItems: 'center', flexWrap: 'wrap', columnGap: 1, rowGap: 0.5 }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>
+                    {`by ${incident.reporter_name}`}
+                  </Typography>
+                  <RecurringBadge level={incident.recurring} />
+                </Stack>
               </TableCell>
               <TableCell><StatusChip status={incident.status} archived={incident.is_archived} /></TableCell>
               <TableCell><PriorityChip priority={incident.priority} /></TableCell>
@@ -141,6 +146,7 @@ function IncidentCards({ items }) {
               <Stack direction="row" spacing={1} sx={{ mb: 1 }}>
                 <StatusChip status={incident.status} archived={incident.is_archived} />
                 <PriorityChip priority={incident.priority} />
+                <RecurringBadge level={incident.recurring} />
               </Stack>
               <Typography sx={{ fontWeight: 600 }}>{`#${incident.id} ${incident.title}`}</Typography>
               <Typography variant="body2" color="text.secondary">

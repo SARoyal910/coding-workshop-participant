@@ -469,6 +469,88 @@ def update_work_log(log_id: int, work_date, hours: float, description: str) -> N
     )
 
 
+# ---------- recurring issues ----------
+# "Same place" means the same issue type on the same floor; a seat-level match
+# also needs the same seat. Voided incidents never count.
+
+def recurring_counts(incident_ids: list[int], days: int) -> dict[int, dict]:
+    """
+    For each incident, count incidents of the same issue type reported within
+    `days` days before or after it (the incident itself included).
+
+    Returns:
+        {incident_id: {"seat_count", "floor_count", "floor_seats"}}; floor_seats is
+        the number of different seats among the floor matches.
+    """
+    rows = db.fetch_all(
+        "SELECT i.id,"
+        "       count(o.id) FILTER (WHERE o.seat_id = i.seat_id) AS seat_count,"
+        "       count(o.id) AS floor_count,"
+        "       count(DISTINCT o.seat_id) AS floor_seats"
+        "  FROM incidents i"
+        "  JOIN incidents o ON o.floor_id = i.floor_id AND o.issue_type = i.issue_type AND NOT o.is_voided"
+        "   AND o.created_at BETWEEN i.created_at - make_interval(days => %(days)s)"
+        "                        AND i.created_at + make_interval(days => %(days)s)"
+        " WHERE i.id = ANY(%(ids)s)"
+        " GROUP BY i.id",
+        {"ids": incident_ids, "days": days},
+    )
+    return {row.pop("id"): row for row in rows}
+
+
+def related_incidents(incident_id: int, same_seat: bool, days: int, include_archived: bool) -> list[dict]:
+    """
+    The other incidents in an incident's recurring pattern, oldest first: same
+    issue type on the same floor (and the same seat if `same_seat`), within
+    `days` days before or after it.
+    """
+    return db.fetch_all(
+        "SELECT o.id, o.title, o.status, o.is_archived, o.created_at, s.code AS seat_code"
+        "  FROM incidents i"
+        "  JOIN incidents o ON o.floor_id = i.floor_id AND o.issue_type = i.issue_type AND NOT o.is_voided"
+        "   AND o.id <> i.id"
+        "   AND o.created_at BETWEEN i.created_at - make_interval(days => %(days)s)"
+        "                        AND i.created_at + make_interval(days => %(days)s)"
+        "  LEFT JOIN seats s ON s.id = o.seat_id"
+        " WHERE i.id = %(id)s"
+        "   AND (NOT %(same_seat)s OR o.seat_id = i.seat_id)"
+        "   AND (%(include_archived)s OR NOT o.is_archived)"
+        " ORDER BY o.created_at, o.id",
+        {"id": incident_id, "same_seat": same_seat, "days": days, "include_archived": include_archived},
+    )
+
+
+def open_at_location(issue_type: str, floor_id: int, seat_id: int | None, limit: int) -> list[dict]:
+    """
+    Active (open, in progress, blocked) incidents of this issue type at a seat,
+    or anywhere on the floor when no seat is given. Newest first.
+    """
+    return db.fetch_all(
+        "SELECT i.id, i.title, i.status, i.reporter_id, i.created_at, s.code AS seat_code"
+        "  FROM incidents i LEFT JOIN seats s ON s.id = i.seat_id"
+        " WHERE i.issue_type = %(issue_type)s AND i.floor_id = %(floor_id)s"
+        "   AND (%(seat_id)s::int IS NULL OR i.seat_id = %(seat_id)s)"
+        "   AND i.status IN ('open', 'in_progress', 'blocked') AND NOT i.is_archived AND NOT i.is_voided"
+        " ORDER BY i.created_at DESC, i.id DESC LIMIT %(limit)s",
+        {"issue_type": issue_type, "floor_id": floor_id, "seat_id": seat_id, "limit": limit},
+    )
+
+
+def recent_counts_at_location(issue_type: str, floor_id: int, seat_id: int | None, days: int) -> dict:
+    """
+    Incidents of this issue type reported in the last `days` days, any status:
+    {"seat_count", "floor_count", "floor_seats"} (seat_count is 0 without a seat).
+    """
+    return db.fetch_one(
+        "SELECT count(*) FILTER (WHERE i.seat_id = %(seat_id)s) AS seat_count,"
+        "       count(*) AS floor_count, count(DISTINCT i.seat_id) AS floor_seats"
+        "  FROM incidents i"
+        " WHERE i.issue_type = %(issue_type)s AND i.floor_id = %(floor_id)s AND NOT i.is_voided"
+        "   AND i.created_at >= now() - make_interval(days => %(days)s)",
+        {"issue_type": issue_type, "floor_id": floor_id, "seat_id": seat_id, "days": days},
+    )
+
+
 def list_locations() -> list[dict]:
     """Return every seat position as flat rows: building, floor and (optional) seat."""
     return db.fetch_all(

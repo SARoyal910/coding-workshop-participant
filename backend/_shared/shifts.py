@@ -30,3 +30,9 @@ def current_or_next_shift(shift: str, at: datetime) -> tuple[datetime, datetime]
         start += timedelta(days=1)
         end += timedelta(days=1)
     return start.astimezone(timezone.utc), end.astimezone(timezone.utc)
+
+
+def is_on_shift(shift: str, at: datetime) -> bool:
+    """Return True if `at` falls inside a `shift` window (start included, end excluded)."""
+    start, end = current_or_next_shift(shift, at)
+    return start <= at < end
