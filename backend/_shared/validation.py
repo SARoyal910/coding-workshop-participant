@@ -6,6 +6,7 @@ instead of raising right away, so the client gets every problem at once.
 Call raise_if_errors(errors) when all fields have been checked.
 """
 
+import math
 import re
 from datetime import date
 
@@ -101,7 +102,8 @@ def get_int(data: dict, field: str, errors: dict, required: bool = True, minimum
         if required:
             errors[field] = "This field is required"
         return None
-    if isinstance(value, str) and value.strip().isdigit():
+    # isascii + isdecimal: plain 0-9 only ("²" counts as a digit for isdigit() but int() rejects it).
+    if isinstance(value, str) and value.strip().isascii() and value.strip().isdecimal():
         value = int(value)
     # bool is a subclass of int in Python, so reject it explicitly.
     if not isinstance(value, int) or isinstance(value, bool):
@@ -120,7 +122,8 @@ def get_number(data: dict, field: str, errors: dict, required: bool = True) -> f
         if required:
             errors[field] = "This field is required"
         return None
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
+    # JSON parsing accepts NaN and Infinity, so reject anything that isn't a finite number.
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
         errors[field] = "Must be a number"
         return None
     return float(value)

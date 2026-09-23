@@ -87,7 +87,7 @@ def match_route(routes: list[tuple[str, str, Callable]], method: str, path: str)
             continue
         params = {}
         for pattern_part, part in zip(pattern_parts, parts):
-            if pattern_part.startswith("{") and part.isdigit():
+            if pattern_part.startswith("{") and part.isascii() and part.isdecimal():
                 params[pattern_part[1:-1]] = int(part)
             elif pattern_part != part:
                 break

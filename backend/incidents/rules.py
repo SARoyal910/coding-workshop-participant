@@ -5,6 +5,8 @@ These functions are pure: they take plain values and never touch the
 database, so every allowed and forbidden transition is easy to unit test.
 """
 
+import math
+
 # (from status, to status) -> who may do it and what the request must include.
 #   who "assigned": an engineer on the ticket, or an admin
 #   who "reporter": the person who reported it, or an admin
@@ -124,6 +126,9 @@ def hours_error(hours: float) -> str | None:
     """Return why an hours value is invalid, or None if it is valid (0.25 steps, 0.25 to 12)."""
     if hours < HOURS_MIN or hours > HOURS_MAX:
         return f"Must be between {HOURS_MIN} and {HOURS_MAX} hours"
+    # NaN fails every comparison, so it gets past the range check; catch it here.
+    if not math.isfinite(hours):
+        return "Must be a number"
     if round(hours / HOURS_STEP) * HOURS_STEP != hours:
         return f"Must be in steps of {HOURS_STEP} hours (15 minutes)"
     return None
