@@ -1,0 +1,57 @@
+name: Tests
+
+on: [pull_request, push]
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Setup GitHub Actions
+        uses: actions/checkout@v4
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      # Every service has the same requirements.txt, so one install covers them all.
+      - name: Install dependencies
+        run: pip install -r backend/incidents/requirements.txt -r tests/requirements.txt
+
+      # Unit and handler tests only. The integration tests need PostgreSQL and skip themselves.
+      - name: Run pytest
+        run: >
+          python -m pytest tests/backend
+          --cov=backend/_shared --cov=backend/auth --cov=backend/incidents --cov=backend/dashboard
+          --cov=backend/facilities --cov=backend/engineers
+
+  frontend:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Setup GitHub Actions
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install npm dependencies
+        run: npm ci --prefix ./frontend
+
+      - name: Run eslint
+        run: npm run lint --prefix ./frontend
+
+      - name: Run vitest
+        run: npm test --prefix ./frontend
+
+      - name: Build
+        run: npm run build --prefix ./frontend

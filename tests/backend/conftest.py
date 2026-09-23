@@ -35,6 +35,23 @@ def jwt_secret(monkeypatch: pytest.MonkeyPatch) -> str:
     return TEST_JWT_SECRET
 
 
+@pytest.fixture(autouse=True)
+def no_database(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Unit tests must never reach a real database, even when POSTGRES_* is set
+    in the shell. Any unfaked repository call fails loudly instead of quietly
+    querying whatever database the environment points at.
+    """
+    if request.node.get_closest_marker("integration"):
+        return
+    from _shared import db
+
+    def refuse() -> None:
+        raise RuntimeError("unit test tried to open a database connection; fake the repository function")
+
+    monkeypatch.setattr(db, "_connect", refuse)
+
+
 def _forget_service_modules() -> None:
     """Remove every service's bare-named modules (function, service, repository, rules...) from the import cache."""
     for source in BACKEND_DIR.glob("*/function.py"):

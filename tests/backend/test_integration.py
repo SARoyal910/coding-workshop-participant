@@ -102,7 +102,7 @@ def test_schema() -> Iterator[dict[str, int]]:
 def handlers(test_schema, load_service) -> dict:
     """The real service handlers (each loaded cleanly)."""
     return {name: load_service(name).function.handler
-            for name in ("auth", "incidents", "facilities", "engineers")}
+            for name in ("auth", "incidents", "dashboard", "facilities", "engineers")}
 
 
 def call(handler, method: str, path: str, body: dict | None = None, token: str | None = None) -> tuple[int, dict]:
@@ -441,6 +441,40 @@ def test_two_engineers_taking_a_ticket_at_once_get_one_primary(handlers, load_se
     with pytest.raises(psycopg.errors.UniqueViolation):
         db.execute("INSERT INTO incident_engineers (incident_id, engineer_id, role, added_by)"
                    " VALUES (%s, 1, 'primary', 1)", (ticket["id"],))
+
+
+def test_dashboards_match_the_rows_they_summarize(handlers):
+    """
+    Every dashboard query runs against the seeded rows, and the headline
+    numbers agree with direct counts of the same tables.
+    """
+    from _shared import db
+
+    dashboard = handlers["dashboard"]
+    active = "FROM incidents WHERE NOT is_voided AND NOT is_archived"
+
+    status, admin = call(dashboard, "GET", "/api/dashboard", token=login(handlers, "admin@acme.inc", TEST_SEED_PASSWORD))
+    assert status == 200, admin
+    assert sum(admin["status_counts"].values()) == db.fetch_one(f"SELECT count(*) AS n {active}")["n"]  # nosec B608
+    assert sum(row["engineers"] for row in admin["shift_coverage"]) == len(admin["engineers"])
+    assert sum(row["count"] for row in admin["categories"]) == sum(row["count"] for row in admin["issue_types"])
+    for pct in (admin["communication"]["resolved_with_note_pct"], admin["communication"]["reopen_rate_pct"]):
+        assert pct is None or 0 <= pct <= 100
+
+    employee = db.fetch_one("SELECT id FROM users WHERE email = 'dana.whitfield@acme.inc'")["id"]
+    status, mine = call(dashboard, "GET", "/api/dashboard", token=login(handlers, "dana.whitfield@acme.inc", TEST_SEED_PASSWORD))
+    assert status == 200, mine
+    assert sum(mine["status_counts"].values()) == db.fetch_one(
+        f"SELECT count(*) AS n {active} AND reporter_id = %s", (employee,))["n"]  # nosec B608
+    assert mine["awaiting_your_confirmation"] == mine["status_counts"]["resolved"]
+
+    engineer = db.fetch_one("SELECT u.id, u.email FROM users u JOIN engineer_profiles p ON p.user_id = u.id"
+                            " ORDER BY u.id LIMIT 1")
+    status, own = call(dashboard, "GET", "/api/dashboard", token=login(handlers, engineer["email"], TEST_SEED_PASSWORD))
+    assert status == 200, own
+    assert own["me"]["id"] == engineer["id"]
+    assert own["unassigned_pool"] == db.fetch_one(
+        f"SELECT count(*) AS n {active} AND id NOT IN (SELECT incident_id FROM incident_engineers)")["n"]  # nosec B608
 
 
 def test_public_schema_untouched(test_schema):

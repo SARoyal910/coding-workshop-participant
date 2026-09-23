@@ -11,7 +11,7 @@ Backend (from the repo root, using the backend virtualenv):
 ```bash
 backend/.venv/bin/pip install -r tests/requirements.txt   # pytest, pytest-cov (once)
 
-# Unit + handler tests (no database needed)
+# Unit + handler tests (no database needed; any attempt to connect fails the test)
 backend/.venv/bin/python -m pytest tests/backend
 
 # With coverage
@@ -38,12 +38,17 @@ npm test                 # vitest run
 npm run test:coverage    # vitest run --coverage
 ```
 
+CI (`.github/workflows/tests.actions.yml`) runs on every push and pull request:
+the backend unit and handler tests with coverage, then eslint, Vitest and the
+production build for the frontend. The integration tests skip themselves there
+because CI has no database.
+
 ## Latest results (2026-09-23)
 
 | Suite | Result |
 | --- | --- |
-| Backend, unit + handler | 408 passed, 9 skipped (integration tests, opt-in) |
-| Backend, with `RUN_INTEGRATION=1` | 417 passed. `public` still has 16 users / 60 incidents afterwards |
+| Backend, unit + handler | 420 passed, 10 skipped (integration tests, opt-in) |
+| Backend, with `RUN_INTEGRATION=1` | 430 passed. `public` still has 16 users / 60 incidents afterwards |
 | Frontend (Vitest) | 35 passed in 6 files |
 
 Backend line coverage (pytest-cov):
@@ -51,15 +56,17 @@ Backend line coverage (pytest-cov):
 | Module | Unit only | With integration |
 | --- | --- | --- |
 | `incidents/rules.py` | 100% | 100% |
-| `_shared/http.py`, `auth.py`, `shifts.py`, `errors.py`, `engineer_stats.py` | 100% | 100% |
+| `_shared/http.py`, `auth.py`, `shifts.py`, `errors.py` | 100% | 100% |
 | `_shared/validation.py` | 99% | 99% |
+| `_shared/engineer_stats.py` | 67% | 100% |
 | `auth/service.py`, `auth/function.py` | 100% | 100% |
-| `incidents/service.py` | 58% | 68% |
-| `incidents/repository.py` | 39% | 57% |
-| `engineers/service.py`, `engineers/function.py` | 74%, 88% | 100%, 100% |
+| `dashboard/service.py`, `dashboard/function.py` | 100% | 100% |
+| `dashboard/repository.py` | 50% | 100% |
+| `incidents/service.py` | 62% | 68% |
+| `incidents/repository.py` | 37% | 58% |
+| `engineers/service.py`, `engineers/function.py` | 75%, 88% | 100%, 100% |
 | `facilities/service.py`, `facilities/repository.py` | 51%, 27% | 81%, 68% |
-| `dashboard/*` | 0% | 0% |
-| **Total (`_shared`, `auth`, `incidents`, `dashboard`, `facilities`, `engineers`)** | **63%** | **80%** |
+| **Total (`_shared`, `auth`, `incidents`, `dashboard`, `facilities`, `engineers`)** | **66%** | **86%** |
 
 Frontend coverage is 19% of statements. The tested files are well covered:
 `StatusChip`, `WorkflowStepper` and `LoginPage` are at 100% of lines,
@@ -103,6 +110,7 @@ Frontend coverage is 19% of statements. The tested files are well covered:
   - engineers: 403 for employees and for non-admins creating accounts; `role` rejected as an unknown field; 400 for a bad email, shift, phone or a non-boolean `is_available`; 409 for a taken email (no profile written); 403 when an engineer changes someone else's availability; `needs_reassignment` when going unavailable with active tickets
   - approvals queue: admin only, `?type=` filter, unknown type is 400
   - recurring and similar: staff get the related tickets and every open duplicate; employees get the counts and only their own tickets (never other people's); bad or unknown `similar` parameters are 400
+  - dashboard: 401 without a token; the admin view has a section for every business question; statuses with no tickets are 0; category totals add up their issue types; `needs_reassignment` and `on_shift_now` (with a fixed clock); shift coverage lists every shift, even an empty one; percentages round to whole numbers and are `null` (not 0%) when nothing is resolved; engineers and employees see only their own counts
   - auth: register with a non-acme email (400), with a `role` field (400), with a duplicate email (409); login with a wrong password or an unknown user gives the same 401 message; `/me` without a token (401); refresh; health (200/503)
 - **Integration** (real PostgreSQL, `test` schema):
   - register, login and duplicate register
@@ -113,6 +121,7 @@ Frontend coverage is 19% of statements. The tested files are well covered:
   - facilities: duplicate building name and floor renumber hit the UNIQUE constraints (409), deleting a seat, floor or building with an incident is 409, the repository's foreign-key guard rolls the delete back, and an empty building is deleted with its floors and seats
   - recurring detection on a fresh seat: 2 reports are not a pattern, the 3rd badges all three, the similar check sees 3 open duplicates, and voiding one drops the pattern again
   - missed shift commitments: an acknowledged shift that ended with the ticket still open counts; one blocked during the shift, one resolved before the shift ended and a shift still running do not
+  - dashboards: every dashboard query runs on the seeded rows, and the headline numbers match direct counts (active tickets by status, an employee's own tickets, the unassigned pool, shift coverage against the engineer list)
   - engineers: an admin creates an engineer who can then log in, duplicate email is 409, the list is sorted by workload, availability rules and profile edits
 - **Frontend**:
   - `StatusChip` labels and the archived state
@@ -128,13 +137,13 @@ Frontend coverage is 19% of statements. The tested files are well covered:
 - **Bugs the tests found (now fixed).** Both returned 500 instead of a clean error. The tests that exposed them now pass:
   - `{"hours": NaN}` on a work log. Python's `json.loads` accepts `NaN`. Fixed: `get_number` rejects non-finite numbers, and `rules.hours_error` also returns an error for NaN.
   - Non-ASCII digits such as `"²"` in `?page=²` or `/api/incidents/²`. `str.isdigit()` is True for them, but `int()` rejects them. Fixed: `get_int` and `match_route` accept only ASCII `0-9` (`isascii()` + `isdecimal()`).
-- **Coverage is below the 80% target.**
-  - Backend: 80% with integration tests, 63% without.
+- **A leak the CI run found (now fixed).** Step 8 made the ticket detail also look up recurring counts, and three handler tests didn't fake that call. On a machine with `POSTGRES_*` set they quietly ran read-only queries against that database; without it they returned 500. The fixture now fakes it, and `conftest.py` makes every non-integration test fail if it tries to open a connection.
+- **Coverage.**
+  - Backend: 86% with integration tests, 66% without (CI runs the 66% set).
   - Frontend: 19%.
-  - The dashboard service has no tests at all (0%).
   - The success paths of acknowledge, priority, request decisions and work-log edits are not tested.
   - The incident list, detail, form, register, dashboard, facilities, engineers and approvals pages have no tests (the new pages were checked in the browser, see below).
-- **Integration tests are opt-in** (`RUN_INTEGRATION=1`) and need a reachable PostgreSQL. CI doesn't run any tests yet: the workflows only run bandit, npm audit and terraform checks.
+- **Integration tests are opt-in** (`RUN_INTEGRATION=1`) and need a reachable PostgreSQL. CI runs the unit, handler and frontend tests, but not these.
 - **No end-to-end browser suite is committed.** During development each feature was checked end to end with headless-browser (Playwright) runs against a throwaway database schema. These covered login errors, the dashboards, filtering, reporting through the form, the workflow dialogs, reopen and approval, void, the engineer tabs, the facilities, engineers and approvals pages (including role-based navigation and redirects), the recurring badges and report-form warning, the mobile layout and session expiry, with no console errors or 5xx responses. Those scripts are not part of the repo, so this is manual validation rather than an automated suite.
 - **No load, performance or security testing** (beyond bandit and `npm audit`).
 - The handler tests use a fake repository, so they check the service logic but not the SQL. The SQL is only checked by the integration tests.
