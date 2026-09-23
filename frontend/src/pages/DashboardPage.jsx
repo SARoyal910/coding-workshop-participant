@@ -216,10 +216,10 @@ function AdminDashboard({ data }) {
           },
           { label: 'Resolved', value: counts.resolved, to: '/incidents?status=resolved' },
           {
-            label: 'Awaiting approval', value: data.pending_requests.close_approval, caption: 'Close requests', to: '/incidents?pending=close_approval',
+            label: 'Awaiting approval', value: data.pending_requests.close_approval, caption: 'Close requests', to: '/approvals?type=close_approval',
           },
           {
-            label: 'Reopen requests', value: data.pending_requests.reopen, caption: 'Pending decision', to: '/incidents?pending=reopen',
+            label: 'Reopen requests', value: data.pending_requests.reopen, caption: 'Pending decision', to: '/approvals?type=reopen',
           },
         ]}
         />

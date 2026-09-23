@@ -258,6 +258,28 @@ def get_requests(incident_id: int) -> list[dict]:
     )
 
 
+def list_pending_requests(request_type: str | None, page: int, page_size: int) -> tuple[list[dict], int]:
+    """
+    Return one page of pending requests (oldest first, so nothing waits forever)
+    on non-voided tickets, with the ticket's title, status, priority and reporter.
+    """
+    rows = db.fetch_all(
+        "SELECT r.id, r.type, r.reason, r.requested_at, ru.name AS requested_by_name,"
+        "       i.id AS incident_id, i.title AS incident_title, i.status AS incident_status,"
+        "       i.priority AS incident_priority, count(*) OVER () AS total"
+        "  FROM incident_requests r"
+        "  JOIN incidents i ON i.id = r.incident_id"
+        "  JOIN users ru ON ru.id = r.requested_by"
+        " WHERE r.status = 'pending' AND NOT i.is_voided AND (%(type)s::text IS NULL OR r.type = %(type)s)"
+        " ORDER BY r.requested_at, r.id LIMIT %(limit)s OFFSET %(offset)s",
+        {"type": request_type, "limit": page_size, "offset": (page - 1) * page_size},
+    )
+    total = rows[0]["total"] if rows else 0
+    for row in rows:
+        del row["total"]
+    return rows, total
+
+
 def get_request(incident_id: int, request_id: int) -> dict | None:
     """Return one request if it belongs to this incident, or None."""
     return db.fetch_one(

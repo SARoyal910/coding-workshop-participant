@@ -11,7 +11,10 @@ import RegisterPage from './pages/RegisterPage';
 
 // Pages behind login are loaded on demand, so the login screen doesn't download
 // the charts library and every page at once.
+const ApprovalsPage = lazy(() => import('./pages/ApprovalsPage'));
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
+const EngineersPage = lazy(() => import('./pages/EngineersPage'));
+const FacilitiesPage = lazy(() => import('./pages/FacilitiesPage'));
 const IncidentDetailPage = lazy(() => import('./pages/IncidentDetailPage'));
 const IncidentFormPage = lazy(() => import('./pages/IncidentFormPage'));
 const IncidentListPage = lazy(() => import('./pages/IncidentListPage'));
@@ -53,6 +56,9 @@ export default function App() {
         <Route path="incidents" element={lazyPage(IncidentListPage)} />
         <Route path="incidents/new" element={lazyPage(IncidentFormPage)} />
         <Route path="incidents/:id" element={lazyPage(IncidentDetailPage)} />
+        <Route path="approvals" element={<RequireAuth roles={['admin']}>{lazyPage(ApprovalsPage)}</RequireAuth>} />
+        <Route path="engineers" element={<RequireAuth roles={['admin', 'engineer']}>{lazyPage(EngineersPage)}</RequireAuth>} />
+        <Route path="facilities" element={<RequireAuth roles={['admin']}>{lazyPage(FacilitiesPage)}</RequireAuth>} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>

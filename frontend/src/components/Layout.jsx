@@ -16,6 +16,9 @@ import ListItemText from '@mui/material/ListItemText';
 import Toolbar from '@mui/material/Toolbar';
 import Typography from '@mui/material/Typography';
 import AddCircleOutlinedIcon from '@mui/icons-material/AddCircleOutlined';
+import ApartmentOutlinedIcon from '@mui/icons-material/ApartmentOutlined';
+import EngineeringOutlinedIcon from '@mui/icons-material/EngineeringOutlined';
+import FactCheckOutlinedIcon from '@mui/icons-material/FactCheckOutlined';
 import DashboardOutlinedIcon from '@mui/icons-material/DashboardOutlined';
 import ListAltOutlinedIcon from '@mui/icons-material/ListAltOutlined';
 import LogoutIcon from '@mui/icons-material/Logout';
@@ -31,6 +34,9 @@ const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: <DashboardOutlinedIcon />, end: true },
   { to: '/incidents', label: 'Incidents', icon: <ListAltOutlinedIcon />, end: true },
   { to: '/incidents/new', label: 'Report incident', icon: <AddCircleOutlinedIcon /> },
+  { to: '/approvals', label: 'Approvals', icon: <FactCheckOutlinedIcon />, roles: ['admin'] },
+  { to: '/engineers', label: 'Engineers', icon: <EngineeringOutlinedIcon />, roles: ['admin', 'engineer'] },
+  { to: '/facilities', label: 'Facilities', icon: <ApartmentOutlinedIcon />, roles: ['admin'] },
 ];
 
 /**

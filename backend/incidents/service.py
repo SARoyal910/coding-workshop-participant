@@ -37,6 +37,7 @@ REOPEN_FIELDS = {"reason"}
 DECISION_FIELDS = {"decision", "note"}
 VOID_FIELDS = {"version", "reason"}
 WORK_LOG_FIELDS = {"work_date", "hours", "description"}
+REQUEST_LIST_PARAMS = {"page", "page_size", "type"}
 LIST_FILTERS = {
     "page", "page_size", "status", "priority", "category", "building_id", "q", "archived", "scope", "pending",
 }
@@ -145,6 +146,27 @@ def get_incident(user: dict, incident_id: int) -> dict:
             "can_log_work": allowed(rules.can_log_work(user, engineer_ids)),
         },
     }
+
+
+def list_pending_requests(user: dict, params: dict) -> dict:
+    """
+    The admin's approvals queue: pending close approvals and reopen requests,
+    oldest first. ?type=close_approval|reopen narrows it to one kind.
+
+    Raises:
+        Forbidden: not an admin.
+    """
+    if not rules.can_decide_requests(user):
+        raise Forbidden("Only an admin can see the approvals queue")
+    errors: dict[str, str] = {}
+    reject_unknown_fields(params, REQUEST_LIST_PARAMS, errors)
+    raise_if_errors(errors)
+    page, page_size = get_pagination(params)
+    request_type = get_choice(params, "type", REQUEST_TYPES, errors, required=False)
+    raise_if_errors(errors)
+
+    items, total = repository.list_pending_requests(request_type, page, page_size)
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
 def form_options() -> dict:

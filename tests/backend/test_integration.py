@@ -100,10 +100,9 @@ def test_schema() -> Iterator[dict[str, int]]:
 
 @pytest.fixture
 def handlers(test_schema, load_service) -> dict:
-    """The real auth and incidents handlers (each loaded cleanly)."""
-    auth = load_service("auth").function.handler
-    incidents = load_service("incidents").function.handler
-    return {"auth": auth, "incidents": incidents}
+    """The real service handlers (each loaded cleanly)."""
+    return {name: load_service(name).function.handler
+            for name in ("auth", "incidents", "facilities", "engineers")}
 
 
 def call(handler, method: str, path: str, body: dict | None = None, token: str | None = None) -> tuple[int, dict]:
@@ -237,6 +236,87 @@ def test_join_reopen_and_void_edge_cases(handlers):
     assert call(incidents, "GET", base, token=reporter_token)[0] == 404
 
 
+def test_facilities_constraints_and_delete_guard(handlers, load_service):
+    """
+    The real SQL: unique names become 409s, a place with an incident can't be
+    deleted, and an empty building is deleted with its floors and seats.
+    """
+    facilities, incidents = handlers["facilities"], handlers["incidents"]
+    admin_token = login(handlers, "admin@acme.inc", TEST_SEED_PASSWORD)
+    reporter_token = login(handlers, "dana.whitfield@acme.inc", TEST_SEED_PASSWORD)
+
+    status, building = call(facilities, "POST", "/api/facilities/buildings",
+                            {"name": "Integration Annex", "address": "1 Test Way"}, admin_token)
+    assert status == 201, building
+    bid = building["id"]
+    assert call(facilities, "POST", "/api/facilities/buildings",
+                {"name": "Integration Annex", "address": "Again"}, admin_token)[0] == 409
+    status, floor = call(facilities, "POST", f"/api/facilities/buildings/{bid}/floors", {"number": 1}, admin_token)
+    assert status == 201, floor
+    status, other_floor = call(facilities, "POST", f"/api/facilities/buildings/{bid}/floors", {"number": 2}, admin_token)
+    assert status == 201, other_floor
+    # Renumbering onto an existing floor hits the UNIQUE constraint -> 409, not 500.
+    assert call(facilities, "PUT", f"/api/facilities/floors/{other_floor['id']}", {"number": 1}, admin_token)[0] == 409
+    status, seat = call(facilities, "POST", f"/api/facilities/floors/{floor['id']}/seats", {"code": "IA-1-001"}, admin_token)
+    assert status == 201, seat
+
+    status, ticket = call(incidents, "POST", "/api/incidents", {
+        "title": "Integration test annex light", "description": "Flickering.", "category": "facilities",
+        "issue_type": "Lighting", "building_id": bid, "floor_id": floor["id"], "seat_id": seat["id"],
+    }, reporter_token)
+    assert status == 201, ticket
+
+    for path in (f"/api/facilities/seats/{seat['id']}", f"/api/facilities/floors/{floor['id']}",
+                 f"/api/facilities/buildings/{bid}"):
+        status, body = call(facilities, "DELETE", path, token=admin_token)
+        assert status == 409, (path, body)
+        assert "1 incident" in body["error"]
+
+    # The repository's foreign-key guard: even without the service's pre-check, the delete is refused and rolled back.
+    assert load_service("facilities").repository.delete_building(bid) is False
+    status, listing = call(facilities, "GET", "/api/facilities/buildings", token=admin_token)
+    annex = next(item for item in listing["items"] if item["id"] == bid)
+    assert [f["number"] for f in annex["floors"]] == [1, 2]
+
+    # An empty building goes with its floors and seats.
+    _, empty = call(facilities, "POST", "/api/facilities/buildings", {"name": "Integration Temp", "address": "x"}, admin_token)
+    _, empty_floor = call(facilities, "POST", f"/api/facilities/buildings/{empty['id']}/floors", {"number": 5}, admin_token)
+    call(facilities, "POST", f"/api/facilities/floors/{empty_floor['id']}/seats", {"code": "T-1"}, admin_token)
+    assert call(facilities, "DELETE", f"/api/facilities/buildings/{empty['id']}", token=admin_token)[0] == 204
+    assert call(facilities, "PUT", f"/api/facilities/floors/{empty_floor['id']}", {"number": 6}, admin_token)[0] == 404
+
+
+def test_engineer_accounts_and_availability(handlers):
+    """An admin creates an engineer who can log in; availability flags reassignment."""
+    engineers = handlers["engineers"]
+    admin_token = login(handlers, "admin@acme.inc", TEST_SEED_PASSWORD)
+    new = {"name": "Integration Engineer", "email": "integration.engineer@acme.inc", "password": "a-long-password",
+           "specialty": "AV", "shift": "night", "phone": "+1 555 010 9999"}
+
+    status, engineer = call(engineers, "POST", "/api/engineers", new, admin_token)
+    assert status == 201, engineer
+    assert (engineer["shift"], engineer["active_primary"], engineer["is_available"]) == ("night", 0, True)
+    assert call(engineers, "POST", "/api/engineers", new, admin_token)[0] == 409
+    engineer_token = login(handlers, new["email"], new["password"])
+
+    status, listing = call(engineers, "GET", "/api/engineers", token=engineer_token)
+    assert status == 200
+    assert listing["total"] == len(listing["items"]) == 6  # 5 seeded + this one
+    busiest = listing["items"][0]  # sorted by active primary tickets
+
+    # An engineer can only change their own availability; an admin can change anyone's.
+    path = f"/api/engineers/{busiest['id']}/availability"
+    assert call(engineers, "PUT", path, {"is_available": False}, engineer_token)[0] == 403
+    status, updated = call(engineers, "PUT", path, {"is_available": False}, admin_token)
+    assert status == 200, updated
+    assert updated["needs_reassignment"] is (busiest["active_primary"] > 0)
+    call(engineers, "PUT", path, {"is_available": True}, admin_token)
+
+    status, edited = call(engineers, "PUT", f"/api/engineers/{engineer['id']}",
+                          {"name": "Integration Engineer", "specialty": "IT", "shift": "day", "phone": None}, admin_token)
+    assert (status, edited["specialty"], edited["phone"]) == (200, "IT", None)
+
+
 def test_public_schema_untouched(test_schema):
     """Nothing written by these tests reached the demo data."""
     admin = _admin_connection()
@@ -246,8 +326,12 @@ def test_public_schema_untouched(test_schema):
             "SELECT count(*) FROM public.incidents WHERE title LIKE 'Integration test %'"
         ).fetchone()[0] == 0
         assert admin.execute(
-            "SELECT count(*) FROM public.users WHERE email IN (%s, %s, %s)",
-            ("integration.tester@acme.inc", "reporter.int@acme.inc", "reporter2.int@acme.inc"),
+            "SELECT count(*) FROM public.buildings WHERE name LIKE 'Integration %'"
+        ).fetchone()[0] == 0
+        assert admin.execute(
+            "SELECT count(*) FROM public.users WHERE email IN (%s, %s, %s, %s)",
+            ("integration.tester@acme.inc", "reporter.int@acme.inc", "reporter2.int@acme.inc",
+             "integration.engineer@acme.inc"),
         ).fetchone()[0] == 0
     finally:
         admin.close()

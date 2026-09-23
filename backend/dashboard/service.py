@@ -35,6 +35,7 @@ def admin_dashboard() -> dict:
 
     engineers = repository.engineer_workload(METRICS_WINDOW_DAYS)
     for engineer in engineers:
+        del engineer["total"]  # paging count, not needed here
         # 13.4: an unavailable engineer who is still primary on active tickets needs cover.
         engineer["needs_reassignment"] = not engineer["is_available"] and engineer["active_primary"] > 0
 
@@ -83,6 +84,8 @@ def admin_dashboard() -> dict:
 def engineer_dashboard(user: dict) -> dict:
     """An engineer's own workload, the unassigned pool, and their shift record."""
     workload = repository.engineer_workload(METRICS_WINDOW_DAYS, engineer_id=user["id"])
+    for row in workload:
+        del row["total"]
     return {
         "role": "engineer",
         "window_days": METRICS_WINDOW_DAYS,

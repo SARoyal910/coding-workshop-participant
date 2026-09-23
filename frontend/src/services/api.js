@@ -110,6 +110,7 @@ export const incidentsApi = {
   list: (query) => request('GET', '/incidents', { query }),
   get: (id) => request('GET', `/incidents/${id}`),
   options: () => request('GET', '/incidents/options'),
+  pendingRequests: (query) => request('GET', '/incidents/requests', { query }),
   create: (fields) => request('POST', '/incidents', { body: fields }),
   update: (id, fields) => request('PUT', `/incidents/${id}`, { body: fields }),
   changeStatus: (id, fields) => request('POST', `/incidents/${id}/status`, { body: fields }),
@@ -123,4 +124,24 @@ export const incidentsApi = {
   void: (id, fields) => request('DELETE', `/incidents/${id}`, { body: fields }),
   addWorkLog: (id, fields) => request('POST', `/incidents/${id}/work-logs`, { body: fields }),
   editWorkLog: (id, logId, fields) => request('PUT', `/incidents/${id}/work-logs/${logId}`, { body: fields }),
+};
+
+export const facilitiesApi = {
+  list: (query) => request('GET', '/facilities/buildings', { query }),
+  createBuilding: (fields) => request('POST', '/facilities/buildings', { body: fields }),
+  updateBuilding: (id, fields) => request('PUT', `/facilities/buildings/${id}`, { body: fields }),
+  deleteBuilding: (id) => request('DELETE', `/facilities/buildings/${id}`),
+  createFloor: (buildingId, fields) => request('POST', `/facilities/buildings/${buildingId}/floors`, { body: fields }),
+  updateFloor: (id, fields) => request('PUT', `/facilities/floors/${id}`, { body: fields }),
+  deleteFloor: (id) => request('DELETE', `/facilities/floors/${id}`),
+  createSeat: (floorId, fields) => request('POST', `/facilities/floors/${floorId}/seats`, { body: fields }),
+  updateSeat: (id, fields) => request('PUT', `/facilities/seats/${id}`, { body: fields }),
+  deleteSeat: (id) => request('DELETE', `/facilities/seats/${id}`),
+};
+
+export const engineersApi = {
+  list: (query) => request('GET', '/engineers', { query }),
+  create: (fields) => request('POST', '/engineers', { body: fields }),
+  update: (id, fields) => request('PUT', `/engineers/${id}`, { body: fields }),
+  setAvailability: (id, isAvailable) => request('PUT', `/engineers/${id}/availability`, { body: { is_available: isAvailable } }),
 };

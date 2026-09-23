@@ -5,6 +5,7 @@ excluded everywhere; archived ones only count toward historical metrics.
 """
 
 from _shared import db
+from _shared.engineer_stats import engineer_workload  # noqa: F401  (re-exported for service.py)
 
 # Conditions repeated in the queries below (kept as literal SQL so no query is
 # ever built from strings):
@@ -96,39 +97,6 @@ def building_hotspots(days: int) -> list[dict]:
         " WHERE NOT i.is_voided AND i.created_at >= now() - make_interval(days => %(days)s)"
         " GROUP BY b.name ORDER BY count DESC",
         {"days": days},
-    )
-
-
-def engineer_workload(days: int, engineer_id: int | None = None) -> list[dict]:
-    """
-    Per engineer: availability, active tickets as primary/helper, tickets helped on,
-    hours logged in the window, and missed shift commitments.
-    """
-    return db.fetch_all(
-        "SELECT u.id, u.name, p.specialty, p.shift, p.is_available,"
-        "       count(*) FILTER (WHERE ie.role = 'primary' AND i.status IN ('open', 'in_progress', 'blocked')"
-        "                        AND NOT i.is_voided AND NOT i.is_archived) AS active_primary,"
-        "       count(*) FILTER (WHERE ie.role = 'helper' AND i.status IN ('open', 'in_progress', 'blocked')"
-        "                        AND NOT i.is_voided AND NOT i.is_archived) AS active_helper,"
-        "       count(*) FILTER (WHERE ie.role = 'helper' AND NOT i.is_voided) AS helped_others,"
-        "       (SELECT coalesce(sum(w.hours), 0) FROM incident_work_logs w"
-        "         WHERE w.engineer_id = u.id AND w.work_date >= current_date - %(days)s) AS hours_logged,"
-        "       (SELECT count(*) FROM incident_acks a JOIN incidents ai ON ai.id = a.incident_id"
-        "         WHERE a.engineer_id = u.id AND NOT ai.is_voided"
-        "           AND a.shift_ends_at < now()"
-        "           AND (ai.resolved_at IS NULL OR ai.resolved_at > a.shift_ends_at)"
-        "           AND NOT EXISTS (SELECT 1 FROM incident_events e"
-        "                WHERE e.incident_id = ai.id AND e.type = 'status_changed' AND e.to_value = 'blocked'"
-        "                  AND e.created_at BETWEEN a.acknowledged_at AND a.shift_ends_at)"
-        "       ) AS missed_shifts"
-        "  FROM users u"
-        "  JOIN engineer_profiles p ON p.user_id = u.id"
-        "  LEFT JOIN incident_engineers ie ON ie.engineer_id = u.id"
-        "  LEFT JOIN incidents i ON i.id = ie.incident_id"
-        " WHERE u.role = 'engineer' AND (%(engineer_id)s::int IS NULL OR u.id = %(engineer_id)s)"
-        " GROUP BY u.id, u.name, p.specialty, p.shift, p.is_available"
-        " ORDER BY active_primary DESC, u.name",
-        {"days": days, "engineer_id": engineer_id},
     )
 
 

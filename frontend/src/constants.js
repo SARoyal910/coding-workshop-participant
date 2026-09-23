@@ -41,6 +41,13 @@ export const CATEGORY_LABELS = {
   security: 'Security',
 };
 
+/** Engineer shifts, in office time (see backend constants). */
+export const SHIFT_LABELS = {
+  day: 'Day (7:00–15:00)',
+  swing: 'Swing (15:00–23:00)',
+  night: 'Night (23:00–7:00)',
+};
+
 export const ROLE_LABELS = {
   employee: 'Employee',
   engineer: 'Engineer',

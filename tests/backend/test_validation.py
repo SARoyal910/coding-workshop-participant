@@ -186,6 +186,24 @@ def test_get_number_required_and_optional():
     assert errors == {}
 
 
+# ---------- get_bool ----------
+
+@pytest.mark.parametrize("value", [True, False])
+def test_get_bool_accepts_json_booleans(value):
+    """true and false are returned as they are."""
+    errors: dict = {}
+    assert validation.get_bool({"on": value}, "on", errors) is value
+    assert errors == {}
+
+
+@pytest.mark.parametrize("value", [None, "true", 1, 0, "yes"])
+def test_get_bool_rejects_everything_else(value):
+    """Missing, strings and 0/1 are not booleans."""
+    errors: dict = {}
+    assert validation.get_bool({"on": value}, "on", errors) is None
+    assert errors == {"on": "Must be true or false"}
+
+
 # ---------- get_date ----------
 
 def test_get_date_parses_iso_string():

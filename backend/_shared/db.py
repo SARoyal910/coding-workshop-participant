@@ -6,7 +6,7 @@ and it is dropped on connection errors so the next call reconnects. The first
 time a container connects, it creates any missing tables and seeds demo data
 if the users table is empty.
 
-Only repository.py files should import this module.
+Only repository.py files (and _shared/engineer_stats.py) should import this module.
 """
 
 import os

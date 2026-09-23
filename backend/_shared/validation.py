@@ -129,6 +129,15 @@ def get_number(data: dict, field: str, errors: dict, required: bool = True) -> f
     return float(value)
 
 
+def get_bool(data: dict, field: str, errors: dict) -> bool | None:
+    """Read a required JSON boolean (true or false, not "true" or 1)."""
+    value = data.get(field)
+    if not isinstance(value, bool):
+        errors[field] = "Must be true or false"
+        return None
+    return value
+
+
 def get_date(data: dict, field: str, errors: dict, required: bool = True) -> date | None:
     """Read a date sent as an ISO string, e.g. "2026-09-23"."""
     value = data.get(field)

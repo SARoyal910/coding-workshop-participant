@@ -13,8 +13,10 @@
 - backend/_shared/ : db.py (connect, create tables if not exist, seed if users empty), auth.py, http.py (parse_path strips optional /api/<service> prefix since local proxy strips it and cloud does not; response helpers), validation.py
 - backend/auth/ : register (@acme.inc only, always role=employee), login, me
 - backend/incidents/ : incidents, notes, work logs, status, priority, join, acknowledge, requests (reopen/close approval), void
-- backend/facilities/ : buildings, floors, seats CRUD
-- backend/engineers/ : engineer profiles CRUD (admin creates engineer users), availability toggle, stats
+- backend/facilities/ : buildings, floors, seats CRUD (admin only). Deleting a place with incidents -> 409; deleting an empty building/floor also deletes what is inside it, in one transaction
+- backend/engineers/ : list with stats (admin + engineers), create/edit (admin creates engineer users), availability toggle (admin, or the engineer themselves). No delete: tickets, work logs and the audit log point at engineers, so an admin marks them unavailable instead
+- backend/_shared/engineer_stats.py : the engineer workload query (incl. missed shift commitments), shared by dashboard and engineers so the definition lives in one place
+- Approvals queue: GET /api/incidents/requests (admin) lists pending close approvals and reopen requests, oldest first
 - backend/dashboard/ : role-specific metrics
 - backend/dev_server.py : local HTTP server on :8000 mapping /api/<service>/... to that service's handler with a Lambda Function URL-style event (for local dev without LocalStack)
 - Packaging: infra/lambda.tf zips backend/_shared into every Python service as `_shared/` (second `source_path` entry), so there are no copies to keep in sync. dev_server.py puts backend/ on sys.path instead.
