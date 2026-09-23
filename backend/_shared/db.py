@@ -14,12 +14,16 @@ from contextlib import contextmanager
 from typing import Any, Iterator
 
 import psycopg
+from psycopg import sql
 from psycopg.rows import dict_row
 
 from _shared.schema import SCHEMA_SQL
 from _shared.seed import seed_if_empty
 
 CONNECT_TIMEOUT_SECONDS = 10
+
+# A query is plain SQL text, or one composed safely with psycopg.sql.
+Query = str | sql.Composable
 
 # Reused across invocations within the same Lambda container.
 _connection: psycopg.Connection | None = None
@@ -86,25 +90,25 @@ def transaction() -> Iterator[psycopg.Connection]:
         raise
 
 
-def _run(sql: str, params: tuple | dict | None) -> psycopg.Cursor:
+def _run(query: Query, params: tuple | dict | None) -> psycopg.Cursor:
     """Execute one statement on the shared connection."""
     try:
-        return get_connection().execute(sql, params)
+        return get_connection().execute(query, params)
     except Exception as exc:
         _reset_on_connection_error(exc)
         raise
 
 
-def fetch_all(sql: str, params: tuple | dict | None = None) -> list[dict[str, Any]]:
+def fetch_all(query: Query, params: tuple | dict | None = None) -> list[dict[str, Any]]:
     """Run a query and return every row as a dict."""
-    return _run(sql, params).fetchall()
+    return _run(query, params).fetchall()
 
 
-def fetch_one(sql: str, params: tuple | dict | None = None) -> dict[str, Any] | None:
+def fetch_one(query: Query, params: tuple | dict | None = None) -> dict[str, Any] | None:
     """Run a query and return the first row as a dict, or None if there are no rows."""
-    return _run(sql, params).fetchone()
+    return _run(query, params).fetchone()
 
 
-def execute(sql: str, params: tuple | dict | None = None) -> int:
+def execute(query: Query, params: tuple | dict | None = None) -> int:
     """Run a statement that returns no rows and return how many rows it affected."""
-    return _run(sql, params).rowcount
+    return _run(query, params).rowcount

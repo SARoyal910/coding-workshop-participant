@@ -16,7 +16,7 @@ from decimal import Decimal
 from functools import wraps
 from typing import Any, Callable
 
-from _shared.errors import AppError, ValidationError
+from _shared.errors import AppError, NotFound, ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +66,34 @@ def parse_path(event: dict, service: str) -> str:
     if path == prefix or path.startswith(prefix + "/"):
         path = path[len(prefix):]
     return "/" + path.strip("/")
+
+
+def match_route(routes: list[tuple[str, str, Callable]], method: str, path: str) -> tuple[Callable, dict]:
+    """
+    Find the handler for a method and path.
+
+    Patterns may contain {name} placeholders for numeric ids, e.g. "/{id}/notes/{note_id}".
+
+    Returns:
+        (handler, path_params), where path_params maps placeholder names to ints.
+
+    Raises:
+        NotFound: no route matches.
+    """
+    parts = [part for part in path.split("/") if part]
+    for route_method, pattern, route_handler in routes:
+        pattern_parts = [part for part in pattern.split("/") if part]
+        if route_method != method or len(pattern_parts) != len(parts):
+            continue
+        params = {}
+        for pattern_part, part in zip(pattern_parts, parts):
+            if pattern_part.startswith("{") and part.isdigit():
+                params[pattern_part[1:-1]] = int(part)
+            elif pattern_part != part:
+                break
+        else:
+            return route_handler, params
+    raise NotFound(f"No route for {method} {path}")
 
 
 def get_header(event: dict, name: str) -> str:

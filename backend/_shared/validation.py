@@ -19,6 +19,9 @@ DESCRIPTION_MAX = 5000
 NOTE_MAX = 2000
 REASON_MAX = 1000
 
+PAGE_SIZE_DEFAULT = 25
+PAGE_SIZE_MAX = 100
+
 PASSWORD_MIN_LENGTH = 8
 PASSWORD_MAX_BYTES = 72  # bcrypt only uses the first 72 bytes.
 
@@ -88,6 +91,55 @@ def get_password(data: dict, field: str, errors: dict, new: bool = False) -> str
         errors[field] = f"Must be at most {PASSWORD_MAX_BYTES} bytes"
         return None
     return password
+
+
+def get_int(data: dict, field: str, errors: dict, required: bool = True, minimum: int = 1) -> int | None:
+    """Read a whole-number field (e.g. an id or version). Strings of digits are accepted for query params."""
+    value = data.get(field)
+    if value is None or value == "":
+        if required:
+            errors[field] = "This field is required"
+        return None
+    if isinstance(value, str) and value.strip().isdigit():
+        value = int(value)
+    # bool is a subclass of int in Python, so reject it explicitly.
+    if not isinstance(value, int) or isinstance(value, bool):
+        errors[field] = "Must be a whole number"
+        return None
+    if value < minimum:
+        errors[field] = f"Must be at least {minimum}"
+        return None
+    return value
+
+
+def get_choice(data: dict, field: str, choices: tuple[str, ...], errors: dict,
+               required: bool = True, default: str | None = None) -> str | None:
+    """Read a field whose value must be one of `choices`."""
+    value = data.get(field)
+    if value is None or value == "":
+        if required and default is None:
+            errors[field] = "This field is required"
+        return default
+    if value not in choices:
+        errors[field] = f"Must be one of: {', '.join(choices)}"
+        return None
+    return value
+
+
+def get_pagination(params: dict) -> tuple[int, int]:
+    """
+    Read ?page= and ?page_size= (defaults 1 and 25, page_size at most 100).
+
+    Raises:
+        ValidationError: either value is not a positive whole number or is too large.
+    """
+    errors: dict[str, str] = {}
+    page = get_int(params, "page", errors, required=False) or 1
+    page_size = get_int(params, "page_size", errors, required=False) or PAGE_SIZE_DEFAULT
+    if page_size > PAGE_SIZE_MAX:
+        errors["page_size"] = f"Must be at most {PAGE_SIZE_MAX}"
+    raise_if_errors(errors)
+    return page, page_size
 
 
 def raise_if_errors(errors: dict) -> None:

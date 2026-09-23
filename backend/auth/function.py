@@ -13,8 +13,7 @@ from typing import Any
 
 import service
 from _shared.auth import require_user
-from _shared.errors import NotFound
-from _shared.http import api_handler, get_method, json_response, parse_json_body, parse_path
+from _shared.http import api_handler, get_method, json_response, match_route, parse_json_body, parse_path
 
 logging.getLogger().setLevel(logging.INFO)
 
@@ -50,21 +49,17 @@ def health(event: dict) -> dict:
     return json_response(503, {"status": "unavailable"})
 
 
-ROUTES = {
-    ("POST", "/register"): register,
-    ("POST", "/login"): login,
-    ("GET", "/me"): me,
-    ("POST", "/refresh"): refresh,
-    ("GET", "/health"): health,
-}
+ROUTES = [
+    ("POST", "/register", register),
+    ("POST", "/login", login),
+    ("GET", "/me", me),
+    ("POST", "/refresh", refresh),
+    ("GET", "/health", health),
+]
 
 
 @api_handler
 def handler(event: dict, context: Any = None) -> dict:
     """Lambda entry point: find the route for this method and path and run it."""
-    method = get_method(event)
-    path = parse_path(event, SERVICE)
-    route = ROUTES.get((method, path))
-    if route is None:
-        raise NotFound(f"No route for {method} {path}")
+    route, _ = match_route(ROUTES, get_method(event), parse_path(event, SERVICE))
     return route(event)
