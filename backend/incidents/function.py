@@ -12,6 +12,14 @@ route needs a Bearer token.
     POST /{id}/status            -> 200 incident          workflow transition (needs version)
     POST /{id}/notes             -> 201 note
     PUT  /{id}/notes/{note_id}   -> 200 note              author only
+    POST /{id}/join              -> 200 incident          engineer joins (primary if first, else helper)
+    POST /{id}/acknowledge       -> 200 incident          engineer commits for this shift
+    POST /{id}/priority          -> 200 incident          reporter or admin, with reason (needs version)
+    POST /{id}/requests          -> 200 incident          reporter asks to reopen, with reason
+    POST /{id}/requests/{request_id}/decision -> 200 incident  admin approves or rejects
+    DELETE /{id}                 -> 204                   admin voids (soft delete), with reason (needs version)
+    POST /{id}/work-logs         -> 200 incident          engineer on the ticket logs time
+    PUT  /{id}/work-logs/{log_id} -> 200 incident         author only
 """
 
 import logging
@@ -19,7 +27,16 @@ from typing import Any
 
 import service
 from _shared.auth import require_user
-from _shared.http import api_handler, get_method, get_query_params, json_response, match_route, parse_json_body, parse_path
+from _shared.http import (
+    api_handler,
+    get_method,
+    get_query_params,
+    json_response,
+    match_route,
+    no_content,
+    parse_json_body,
+    parse_path,
+)
 
 logging.getLogger().setLevel(logging.INFO)
 
@@ -66,6 +83,51 @@ def edit_note(event: dict, user: dict, params: dict) -> dict:
     return json_response(200, service.edit_note(user, params["id"], params["note_id"], parse_json_body(event)))
 
 
+def join_incident(event: dict, user: dict, params: dict) -> dict:
+    """POST /{id}/join"""
+    return json_response(200, service.join_incident(user, params["id"]))
+
+
+def acknowledge_incident(event: dict, user: dict, params: dict) -> dict:
+    """POST /{id}/acknowledge"""
+    return json_response(200, service.acknowledge_incident(user, params["id"]))
+
+
+def change_priority(event: dict, user: dict, params: dict) -> dict:
+    """POST /{id}/priority"""
+    return json_response(200, service.change_priority(user, params["id"], parse_json_body(event)))
+
+
+def request_reopen(event: dict, user: dict, params: dict) -> dict:
+    """POST /{id}/requests"""
+    return json_response(200, service.request_reopen(user, params["id"], parse_json_body(event)))
+
+
+def decide_request(event: dict, user: dict, params: dict) -> dict:
+    """POST /{id}/requests/{request_id}/decision"""
+    return json_response(
+        200, service.decide_request(user, params["id"], params["request_id"], parse_json_body(event))
+    )
+
+
+def void_incident(event: dict, user: dict, params: dict) -> dict:
+    """DELETE /{id}"""
+    service.void_incident(user, params["id"], parse_json_body(event))
+    return no_content()
+
+
+def add_work_log(event: dict, user: dict, params: dict) -> dict:
+    """POST /{id}/work-logs"""
+    return json_response(200, service.add_work_log(user, params["id"], parse_json_body(event)))
+
+
+def edit_work_log(event: dict, user: dict, params: dict) -> dict:
+    """PUT /{id}/work-logs/{log_id}"""
+    return json_response(
+        200, service.edit_work_log(user, params["id"], params["log_id"], parse_json_body(event))
+    )
+
+
 ROUTES = [
     ("GET", "/", list_incidents),
     ("POST", "/", create_incident),
@@ -75,6 +137,14 @@ ROUTES = [
     ("POST", "/{id}/status", change_status),
     ("POST", "/{id}/notes", add_note),
     ("PUT", "/{id}/notes/{note_id}", edit_note),
+    ("POST", "/{id}/join", join_incident),
+    ("POST", "/{id}/acknowledge", acknowledge_incident),
+    ("POST", "/{id}/priority", change_priority),
+    ("POST", "/{id}/requests", request_reopen),
+    ("POST", "/{id}/requests/{request_id}/decision", decide_request),
+    ("DELETE", "/{id}", void_incident),
+    ("POST", "/{id}/work-logs", add_work_log),
+    ("PUT", "/{id}/work-logs/{log_id}", edit_work_log),
 ]
 
 

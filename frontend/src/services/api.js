@@ -115,4 +115,12 @@ export const incidentsApi = {
   changeStatus: (id, fields) => request('POST', `/incidents/${id}/status`, { body: fields }),
   addNote: (id, body) => request('POST', `/incidents/${id}/notes`, { body: { body } }),
   editNote: (id, noteId, body) => request('PUT', `/incidents/${id}/notes/${noteId}`, { body: { body } }),
+  join: (id) => request('POST', `/incidents/${id}/join`),
+  acknowledge: (id) => request('POST', `/incidents/${id}/acknowledge`),
+  changePriority: (id, fields) => request('POST', `/incidents/${id}/priority`, { body: fields }),
+  requestReopen: (id, reason) => request('POST', `/incidents/${id}/requests`, { body: { reason } }),
+  decideRequest: (id, requestId, fields) => request('POST', `/incidents/${id}/requests/${requestId}/decision`, { body: fields }),
+  void: (id, fields) => request('DELETE', `/incidents/${id}`, { body: fields }),
+  addWorkLog: (id, fields) => request('POST', `/incidents/${id}/work-logs`, { body: fields }),
+  editWorkLog: (id, logId, fields) => request('PUT', `/incidents/${id}/work-logs/${logId}`, { body: fields }),
 };

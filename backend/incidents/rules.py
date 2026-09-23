@@ -60,3 +60,58 @@ def can_view(user: dict, reporter_id: int, engineer_ids: set[int]) -> bool:
 def can_edit_details(user: dict, reporter_id: int) -> bool:
     """Only the reporter or an admin may edit a ticket's title and description."""
     return user["role"] == "admin" or user["id"] == reporter_id
+
+
+# ---------- step 6: join, acknowledge, priority, requests, void, work logs ----------
+
+ACTIVE_STATUSES = ("open", "in_progress", "blocked")
+REOPENABLE_STATUSES = ("resolved", "closed")
+
+# Work logs: quarter-hour steps from 15 minutes to 12 hours.
+HOURS_STEP = 0.25
+HOURS_MIN = 0.25
+HOURS_MAX = 12
+
+
+def can_join(user: dict, engineer_ids: set[int]) -> bool:
+    """Any engineer may join a ticket they are not already on."""
+    return user["role"] == "engineer" and user["id"] not in engineer_ids
+
+
+def can_acknowledge(user: dict, status: str, engineer_ids: set[int]) -> bool:
+    """An engineer on the ticket may commit to it for their shift while it is still active."""
+    return user["role"] == "engineer" and user["id"] in engineer_ids and status in ACTIVE_STATUSES
+
+
+def can_change_priority(user: dict, reporter_id: int) -> bool:
+    """The reporter or an admin may change the priority (DESIGN.md section 6)."""
+    return user["role"] == "admin" or user["id"] == reporter_id
+
+
+def can_request_reopen(user: dict, status: str, reporter_id: int) -> bool:
+    """The reporter (or an admin) may ask to reopen a resolved or closed ticket."""
+    return (user["role"] == "admin" or user["id"] == reporter_id) and status in REOPENABLE_STATUSES
+
+
+def can_decide_requests(user: dict) -> bool:
+    """Only admins approve or reject close and reopen requests."""
+    return user["role"] == "admin"
+
+
+def can_void(user: dict) -> bool:
+    """Only admins may void an erroneous incident."""
+    return user["role"] == "admin"
+
+
+def can_log_work(user: dict, engineer_ids: set[int]) -> bool:
+    """Only engineers currently on the ticket may log work (13.4: otherwise 403)."""
+    return user["role"] == "engineer" and user["id"] in engineer_ids
+
+
+def hours_error(hours: float) -> str | None:
+    """Return why an hours value is invalid, or None if it is valid (0.25 steps, 0.25 to 12)."""
+    if hours < HOURS_MIN or hours > HOURS_MAX:
+        return f"Must be between {HOURS_MIN} and {HOURS_MAX} hours"
+    if round(hours / HOURS_STEP) * HOURS_STEP != hours:
+        return f"Must be in steps of {HOURS_STEP} hours (15 minutes)"
+    return None

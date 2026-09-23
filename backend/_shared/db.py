@@ -45,6 +45,10 @@ def _connect() -> psycopg.Connection:
     )
     # Stop any single query from hanging a Lambda invocation.
     conn.execute("SET statement_timeout = '10s'")
+    # Optional: use another schema (integration tests use "test" so demo data is never touched).
+    schema = os.getenv("POSTGRES_SCHEMA", "")
+    if schema:
+        conn.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(schema)))
     return conn
 
 

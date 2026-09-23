@@ -55,6 +55,14 @@ export const TRANSITION_LABELS = {
   closed: 'Close ticket',
 };
 
+export const REQUEST_LABELS = {
+  reopen: 'Reopen',
+  close_approval: 'Close approval',
+  pending: 'Pending',
+  approved: 'Approved',
+  rejected: 'Rejected',
+};
+
 /** Human-readable text for audit events. */
 export const EVENT_LABELS = {
   created: 'Reported the incident',
@@ -67,6 +75,7 @@ export const EVENT_LABELS = {
   note_added: 'Added a note',
   note_edited: 'Edited a note',
   work_logged: 'Logged work',
+  work_log_edited: 'Edited a work log',
   request_created: 'Made a request',
   request_decided: 'Decided a request',
   archived: 'Archived the ticket',

@@ -7,6 +7,7 @@ Call raise_if_errors(errors) when all fields have been checked.
 """
 
 import re
+from datetime import date
 
 from _shared.constants import EMAIL_DOMAIN
 from _shared.errors import ValidationError
@@ -110,6 +111,35 @@ def get_int(data: dict, field: str, errors: dict, required: bool = True, minimum
         errors[field] = f"Must be at least {minimum}"
         return None
     return value
+
+
+def get_number(data: dict, field: str, errors: dict, required: bool = True) -> float | None:
+    """Read a JSON number (int or float, not a boolean or string)."""
+    value = data.get(field)
+    if value is None:
+        if required:
+            errors[field] = "This field is required"
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        errors[field] = "Must be a number"
+        return None
+    return float(value)
+
+
+def get_date(data: dict, field: str, errors: dict, required: bool = True) -> date | None:
+    """Read a date sent as an ISO string, e.g. "2026-09-23"."""
+    value = data.get(field)
+    if value is None or value == "":
+        if required:
+            errors[field] = "This field is required"
+        return None
+    if isinstance(value, str):
+        try:
+            return date.fromisoformat(value)
+        except ValueError:
+            pass
+    errors[field] = "Must be a date like 2026-09-23"
+    return None
 
 
 def get_choice(data: dict, field: str, choices: tuple[str, ...], errors: dict,

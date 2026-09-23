@@ -55,6 +55,12 @@ def list_incidents(user: dict, filters: dict, page: int, page_size: int) -> tupl
         params.append(user["id"])
     elif filters.get("scope") == "pool":
         conditions.append(sql.SQL(UNASSIGNED))
+    if filters.get("pending"):
+        conditions.append(sql.SQL(
+            "EXISTS (SELECT 1 FROM incident_requests r WHERE r.incident_id = i.id"
+            " AND r.status = 'pending' AND r.type = %s)"
+        ))
+        params.append(filters["pending"])
     for column in ("status", "priority", "category", "building_id"):
         if filters.get(column) is not None:
             conditions.append(sql.SQL("{} = %s").format(sql.Identifier("i", column)))
@@ -224,18 +230,220 @@ def update_note(note_id: int, body: str) -> dict:
     )
 
 
-def create_close_request(incident_id: int, requested_by: int) -> bool:
+def create_request(incident_id: int, request_type: str, reason: str | None, requested_by: int) -> bool:
     """
-    Create a pending close-approval request.
+    Create a pending reopen or close-approval request.
 
     Returns:
-        False if one is already pending (the partial unique index prevents duplicates).
+        False if one of that type is already pending (the partial unique index prevents duplicates).
     """
     return db.execute(
-        "INSERT INTO incident_requests (incident_id, type, requested_by) VALUES (%s, 'close_approval', %s)"
+        "INSERT INTO incident_requests (incident_id, type, reason, requested_by) VALUES (%s, %s, %s, %s)"
         " ON CONFLICT (incident_id, type) WHERE status = 'pending' DO NOTHING",
-        (incident_id, requested_by),
+        (incident_id, request_type, reason, requested_by),
     ) == 1
+
+
+def get_requests(incident_id: int) -> list[dict]:
+    """Return a ticket's requests, newest first, with requester and decider names."""
+    return db.fetch_all(
+        "SELECT r.id, r.type, r.reason, r.status, r.requested_at, r.decided_at, r.decision_note,"
+        "       r.requested_by, ru.name AS requested_by_name, du.name AS decided_by_name"
+        "  FROM incident_requests r"
+        "  JOIN users ru ON ru.id = r.requested_by"
+        "  LEFT JOIN users du ON du.id = r.decided_by"
+        " WHERE r.incident_id = %s ORDER BY r.requested_at DESC, r.id DESC",
+        (incident_id,),
+    )
+
+
+def get_request(incident_id: int, request_id: int) -> dict | None:
+    """Return one request if it belongs to this incident, or None."""
+    return db.fetch_one(
+        "SELECT id, type, reason, status FROM incident_requests WHERE id = %s AND incident_id = %s",
+        (request_id, incident_id),
+    )
+
+
+def decide_request(request_id: int, status: str, decided_by: int, note: str | None) -> bool:
+    """
+    Approve or reject a request that is still pending.
+
+    Returns:
+        False if it was already decided (someone else got there first).
+    """
+    return db.execute(
+        "UPDATE incident_requests SET status = %s, decided_by = %s, decided_at = now(), decision_note = %s"
+        " WHERE id = %s AND status = 'pending'",
+        (status, decided_by, note, request_id),
+    ) == 1
+
+
+def cancel_pending_requests(incident_id: int, request_type: str, decided_by: int, note: str) -> None:
+    """Reject any pending request of this type (used when a reopen supersedes a close approval)."""
+    db.execute(
+        "UPDATE incident_requests SET status = 'rejected', decided_by = %s, decided_at = now(), decision_note = %s"
+        " WHERE incident_id = %s AND type = %s AND status = 'pending'",
+        (decided_by, note, incident_id, request_type),
+    )
+
+
+def archive(incident_id: int, archived_by: int) -> None:
+    """Archive a closed ticket (read-only from now on)."""
+    db.execute(
+        "UPDATE incidents SET is_archived = true, archived_at = now(), archived_by = %s,"
+        "       updated_at = now(), version = version + 1 WHERE id = %s",
+        (archived_by, incident_id),
+    )
+
+
+def reopen(incident_id: int) -> None:
+    """Send a resolved or closed ticket back to in_progress."""
+    db.execute(
+        "UPDATE incidents SET status = 'in_progress', resolved_at = NULL, closed_at = NULL,"
+        "       updated_at = now(), version = version + 1 WHERE id = %s",
+        (incident_id,),
+    )
+
+
+def return_to_resolved(incident_id: int) -> None:
+    """Undo a close when the admin rejects the close approval."""
+    db.execute(
+        "UPDATE incidents SET status = 'resolved', closed_at = NULL,"
+        "       updated_at = now(), version = version + 1 WHERE id = %s",
+        (incident_id,),
+    )
+
+
+def update_priority(incident_id: int, version: int, priority: str) -> bool:
+    """
+    Change the priority if the version still matches (optimistic locking).
+
+    Returns:
+        False if someone else changed the ticket first.
+    """
+    return db.execute(
+        "UPDATE incidents SET priority = %s, updated_at = now(), version = version + 1"
+        " WHERE id = %s AND version = %s",
+        (priority, incident_id, version),
+    ) == 1
+
+
+def void(incident_id: int, version: int, reason: str, voided_by: int) -> bool:
+    """
+    Void an erroneous incident: hidden from lists and metrics, kept for the audit trail.
+
+    Returns:
+        False if someone else changed the ticket first.
+    """
+    return db.execute(
+        "UPDATE incidents SET is_voided = true, void_reason = %s, voided_by = %s,"
+        "       updated_at = now(), version = version + 1"
+        " WHERE id = %s AND version = %s",
+        (reason, voided_by, incident_id, version),
+    ) == 1
+
+
+def get_engineer_profile(user_id: int) -> dict | None:
+    """Return an engineer's shift and availability, or None."""
+    return db.fetch_one(
+        "SELECT shift, is_available, specialty FROM engineer_profiles WHERE user_id = %s", (user_id,)
+    )
+
+
+def add_engineer(incident_id: int, engineer_id: int, role: str) -> bool:
+    """
+    Put an engineer on a ticket (they add themselves, so added_by is the same person).
+
+    Returns:
+        False if they were already on it (joining twice is a no-op).
+    """
+    return db.execute(
+        "INSERT INTO incident_engineers (incident_id, engineer_id, role, added_by) VALUES (%s, %s, %s, %s)"
+        " ON CONFLICT (incident_id, engineer_id) DO NOTHING",
+        (incident_id, engineer_id, role, engineer_id),
+    ) == 1
+
+
+def mark_assigned(incident_id: int) -> None:
+    """Record when the first engineer joined (only the first time)."""
+    db.execute(
+        "UPDATE incidents SET assigned_at = coalesce(assigned_at, now()), updated_at = now() WHERE id = %s",
+        (incident_id,),
+    )
+
+
+def add_ack(incident_id: int, engineer_id: int, shift_ends_at) -> dict | None:
+    """
+    Record that an engineer committed to the ticket for the shift ending at shift_ends_at.
+
+    Returns:
+        The new acknowledgement, or None if they already acknowledged it for this shift.
+    """
+    return db.fetch_one(
+        "INSERT INTO incident_acks (incident_id, engineer_id, shift_ends_at) VALUES (%s, %s, %s)"
+        " ON CONFLICT (incident_id, engineer_id, shift_ends_at) DO NOTHING"
+        " RETURNING id, acknowledged_at, shift_ends_at",
+        (incident_id, engineer_id, shift_ends_at),
+    )
+
+
+def mark_acknowledged(incident_id: int) -> None:
+    """Record the first acknowledgement time (only the first time)."""
+    db.execute(
+        "UPDATE incidents SET acknowledged_at = coalesce(acknowledged_at, now()), updated_at = now()"
+        " WHERE id = %s",
+        (incident_id,),
+    )
+
+
+def get_acks(incident_id: int) -> list[dict]:
+    """Return a ticket's acknowledgements, newest first, with engineer names."""
+    return db.fetch_all(
+        "SELECT a.id, a.engineer_id, u.name AS engineer_name, a.acknowledged_at, a.shift_ends_at"
+        "  FROM incident_acks a JOIN users u ON u.id = a.engineer_id"
+        " WHERE a.incident_id = %s ORDER BY a.acknowledged_at DESC",
+        (incident_id,),
+    )
+
+
+def get_work_logs(incident_id: int) -> list[dict]:
+    """Return a ticket's work logs, newest work first, with engineer names."""
+    return db.fetch_all(
+        "SELECT w.id, w.engineer_id, u.name AS engineer_name, w.work_date, w.hours, w.description,"
+        "       w.created_at, w.edited_at"
+        "  FROM incident_work_logs w JOIN users u ON u.id = w.engineer_id"
+        " WHERE w.incident_id = %s ORDER BY w.work_date DESC, w.id DESC",
+        (incident_id,),
+    )
+
+
+def get_work_log(incident_id: int, log_id: int) -> dict | None:
+    """Return one work log if it belongs to this incident, or None."""
+    return db.fetch_one(
+        "SELECT id, engineer_id, work_date, hours, description FROM incident_work_logs"
+        " WHERE id = %s AND incident_id = %s",
+        (log_id, incident_id),
+    )
+
+
+def add_work_log(incident_id: int, engineer_id: int, work_date, hours: float, description: str) -> int:
+    """Insert a work log and return its id."""
+    row = db.fetch_one(
+        "INSERT INTO incident_work_logs (incident_id, engineer_id, work_date, hours, description)"
+        " VALUES (%s, %s, %s, %s, %s) RETURNING id",
+        (incident_id, engineer_id, work_date, hours, description),
+    )
+    return row["id"]
+
+
+def update_work_log(log_id: int, work_date, hours: float, description: str) -> None:
+    """Replace a work log's values and set edited_at."""
+    db.execute(
+        "UPDATE incident_work_logs SET work_date = %s, hours = %s, description = %s, edited_at = now()"
+        " WHERE id = %s",
+        (work_date, hours, description, log_id),
+    )
 
 
 def list_locations() -> list[dict]:

@@ -2,15 +2,17 @@ import PropTypes from 'prop-types';
 import Box from '@mui/material/Box';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
-import { EVENT_LABELS, PRIORITY_LABELS, STATUS_LABELS, formatDateTime } from '../constants';
+import {
+  EVENT_LABELS, PRIORITY_LABELS, REQUEST_LABELS, STATUS_LABELS, formatDateTime,
+} from '../constants';
 
-/** Show status/priority values with their labels; other values as-is. */
+/** Show status, priority and request values with their labels; other values as-is. */
 function displayValue(value) {
-  return STATUS_LABELS[value] || PRIORITY_LABELS[value] || value;
+  return STATUS_LABELS[value] || PRIORITY_LABELS[value] || REQUEST_LABELS[value] || value;
 }
 
 /** Event types whose from/to values are long text (shown as a quote, not "A → B"). */
-const TEXT_EVENTS = new Set(['title_changed', 'description_changed', 'note_edited']);
+const TEXT_EVENTS = new Set(['title_changed', 'description_changed', 'note_edited', 'work_log_edited', 'acknowledged']);
 
 /**
  * Audit trail: every change to the ticket, oldest first.
@@ -40,7 +42,10 @@ export default function HistoryPanel({ events }) {
               {(EVENT_LABELS[event.type] || event.type).toLowerCase()}
               {showChange && `: ${event.from_value ? `${displayValue(event.from_value)} → ` : ''}${displayValue(event.to_value || '')}`}
             </Typography>
-            {event.type === 'note_edited' && event.from_value && (
+            {event.type === 'acknowledged' && event.to_value && (
+              <Typography variant="body2" color="text.secondary">{`Committed until ${formatDateTime(event.to_value)}`}</Typography>
+            )}
+            {['note_edited', 'work_log_edited'].includes(event.type) && event.from_value && (
               <Typography variant="caption" color="text.secondary" component="p">
                 {`Previously: "${event.from_value}"`}
               </Typography>

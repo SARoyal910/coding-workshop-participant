@@ -5,6 +5,7 @@ import { useMediaQuery } from 'react-responsive';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Card from '@mui/material/Card';
+import Chip from '@mui/material/Chip';
 import CardActionArea from '@mui/material/CardActionArea';
 import CardContent from '@mui/material/CardContent';
 import FormControlLabel from '@mui/material/FormControlLabel';
@@ -280,6 +281,16 @@ export default function IncidentListPage() {
             label="Archived"
           />
         </Stack>
+
+        {params.get('pending') && (
+          <Box sx={{ px: 2, pb: 1 }}>
+            <Chip
+              color="warning"
+              label={params.get('pending') === 'reopen' ? 'Showing: reopen requests' : 'Showing: awaiting close approval'}
+              onDelete={() => updateParams({ pending: '' })}
+            />
+          </Box>
+        )}
 
         {content}
 

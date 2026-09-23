@@ -17,20 +17,25 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
+import ActionDialog from '../components/ActionDialog';
 import HistoryPanel from '../components/HistoryPanel';
 import NotesPanel from '../components/NotesPanel';
 import { ErrorState, LoadingState } from '../components/PageState';
 import PriorityChip from '../components/PriorityChip';
+import RequestsPanel from '../components/RequestsPanel';
 import StatusChip from '../components/StatusChip';
 import TransitionDialog from '../components/TransitionDialog';
 import WorkflowStepper from '../components/WorkflowStepper';
+import WorkLogPanel from '../components/WorkLogPanel';
 import useAuth from '../hooks/useAuth';
 import useNotify from '../hooks/useNotify';
 import useApiData from '../hooks/useApiData';
 import { incidentsApi } from '../services/api';
 import {
-  CATEGORY_LABELS, TRANSITION_LABELS, formatDateTime, formatLocation,
+  CATEGORY_LABELS, PRIORITY_LABELS, REQUEST_LABELS, TRANSITION_LABELS, formatDateTime, formatLocation,
 } from '../constants';
+
+const PRIORITY_CHOICES = Object.entries(PRIORITY_LABELS).map(([value, label]) => ({ value, label }));
 
 /**
  * Label/value pair in the details grid.
@@ -68,6 +73,9 @@ export default function IncidentDetailPage() {
   const [target, setTarget] = useState(null);
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(null);
+  // Which action dialog is open: 'priority' | 'reopen' | 'void' | 'decide', and the request being decided.
+  const [dialog, setDialog] = useState(null);
+  const [decision, setDecision] = useState(null);
 
   /** Show an API error; conflicts (409) get a Refresh action (DESIGN.md 13.8). */
   const showError = useCallback((err) => {
@@ -81,6 +89,42 @@ export default function IncidentDetailPage() {
   const actions = incident.allowed_actions;
   const readOnly = incident.is_archived || incident.is_voided;
   const engineers = incident.engineers.map((engineer) => `${engineer.name}${engineer.role === 'helper' ? ' (helper)' : ''}`);
+  const myAck = incident.acks.find(
+    (ack) => ack.engineer_id === user.id && new Date(ack.shift_ends_at) > new Date(),
+  );
+
+  /**
+   * Run an action that returns the updated incident, then show a message.
+   * @param {function(): Promise<Object|null>} call
+   * @param {string} message
+   */
+  const runAction = async (call, message) => {
+    setSaving(true);
+    try {
+      const updated = await call();
+      if (updated) setData(updated); else reload();
+      notify(message);
+      setDialog(null);
+      setDecision(null);
+    } catch (err) {
+      showError(err);
+      if (err.status === 409) { setDialog(null); setDecision(null); }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  /** Save a work log; returns true, or field errors for the form. */
+  const saveWorkLog = async (call, message) => {
+    try {
+      setData(await call());
+      notify(message);
+      return true;
+    } catch (err) {
+      showError(err);
+      return err.details && Object.keys(err.details).length ? err.details : false;
+    }
+  };
 
   const changeStatus = async (extra) => {
     setSaving(true);
@@ -162,6 +206,16 @@ export default function IncidentDetailPage() {
               Edit
             </Button>
           )}
+          {actions.can_join && (
+            <Button variant="contained" color="secondary" onClick={() => runAction(() => incidentsApi.join(incident.id), 'You joined this ticket')} disabled={saving}>
+              {incident.engineers.length ? 'Join to help' : 'Take this ticket'}
+            </Button>
+          )}
+          {actions.can_acknowledge && !myAck && (
+            <Button variant="outlined" onClick={() => runAction(() => incidentsApi.acknowledge(incident.id), 'Acknowledged for your shift')} disabled={saving}>
+              Acknowledge for my shift
+            </Button>
+          )}
           {actions.transitions.map((status) => (
             <Button
               key={status}
@@ -172,6 +226,15 @@ export default function IncidentDetailPage() {
               {TRANSITION_LABELS[status]}
             </Button>
           ))}
+          {actions.can_change_priority && (
+            <Button variant="outlined" onClick={() => setDialog('priority')}>Change priority</Button>
+          )}
+          {actions.can_request_reopen && (
+            <Button variant="outlined" onClick={() => setDialog('reopen')}>Request reopen</Button>
+          )}
+          {actions.can_void && (
+            <Button variant="outlined" color="error" onClick={() => setDialog('void')}>Void</Button>
+          )}
         </Stack>
       </Stack>
 
@@ -186,9 +249,16 @@ export default function IncidentDetailPage() {
       {incident.status === 'blocked' && incident.blocked_reason && (
         <Alert severity="error" sx={{ mb: 2 }}>{`Blocked: ${incident.blocked_reason}`}</Alert>
       )}
-      {incident.status === 'closed' && !incident.is_archived && (
-        <Alert severity="info" sx={{ mb: 2 }}>Closed by the reporter. Waiting for admin approval.</Alert>
+      {myAck && (
+        <Alert severity="success" sx={{ mb: 2 }}>
+          {`You acknowledged this ticket for your shift, which ends ${formatDateTime(myAck.shift_ends_at)}.`}
+        </Alert>
       )}
+      <RequestsPanel
+        requests={incident.requests}
+        canDecide={actions.can_decide_requests}
+        onDecide={(request, choice) => { setDecision({ request, choice }); setDialog('decide'); }}
+      />
 
       <Paper sx={{ p: { xs: 2, sm: 3 }, mb: 2 }}>
         <WorkflowStepper status={incident.status} archived={incident.is_archived} />
@@ -202,6 +272,11 @@ export default function IncidentDetailPage() {
               <Detail label="Location">{formatLocation(incident)}</Detail>
               <Detail label="Reported by">{`${incident.reporter_name} · ${formatDateTime(incident.created_at)}`}</Detail>
               <Detail label="Engineers">{engineers.length ? engineers.join(', ') : 'Not assigned yet'}</Detail>
+              {incident.acks.length > 0 && (
+                <Detail label="Shift commitments">
+                  {incident.acks.map((ack) => `${ack.engineer_name} until ${formatDateTime(ack.shift_ends_at)}`).join('; ')}
+                </Detail>
+              )}
               {incident.acknowledged_at && <Detail label="Acknowledged">{formatDateTime(incident.acknowledged_at)}</Detail>}
               {incident.resolved_at && <Detail label="Resolved">{formatDateTime(incident.resolved_at)}</Detail>}
               <Detail label="Last updated">{formatDateTime(incident.updated_at)}</Detail>
@@ -218,10 +293,11 @@ export default function IncidentDetailPage() {
           <Paper>
             <Tabs value={tab} onChange={(event, value) => setTab(value)} sx={{ px: 1, borderBottom: 1, borderColor: 'divider' }}>
               <Tab label={`Notes (${incident.notes.length})`} value="notes" />
+              <Tab label={`Work log (${incident.work_logs.length})`} value="work" />
               <Tab label="History" value="history" />
             </Tabs>
             <Box sx={{ p: { xs: 2, sm: 3 } }}>
-              {tab === 'notes' ? (
+              {tab === 'notes' && (
                 <NotesPanel
                   notes={incident.notes}
                   currentUserId={user.id}
@@ -229,13 +305,85 @@ export default function IncidentDetailPage() {
                   onAdd={addNote}
                   onEdit={editNote}
                 />
-              ) : (
-                <HistoryPanel events={incident.events} />
               )}
+              {tab === 'work' && (
+                <WorkLogPanel
+                  logs={incident.work_logs}
+                  currentUserId={user.id}
+                  canLog={actions.can_log_work}
+                  readOnly={readOnly}
+                  onAdd={(values) => saveWorkLog(() => incidentsApi.addWorkLog(incident.id, values), 'Work logged')}
+                  onEdit={(logId, values) => saveWorkLog(() => incidentsApi.editWorkLog(incident.id, logId, values), 'Work log updated')}
+                />
+              )}
+              {tab === 'history' && <HistoryPanel events={incident.events} />}
             </Box>
           </Paper>
         </Grid>
       </Grid>
+
+      <ActionDialog
+        open={dialog === 'priority'}
+        title="Change priority"
+        description="The reason is shown in the ticket history and on the admin dashboard."
+        choiceLabel="Priority"
+        choices={PRIORITY_CHOICES}
+        initialChoice={incident.priority}
+        textLabel="Why?"
+        textRequired
+        confirmLabel="Change priority"
+        submitting={saving}
+        onCancel={() => setDialog(null)}
+        onConfirm={({ choice, text }) => runAction(
+          () => incidentsApi.changePriority(incident.id, { version: incident.version, priority: choice, reason: text }),
+          'Priority updated',
+        )}
+      />
+      <ActionDialog
+        open={dialog === 'reopen'}
+        title="Ask to reopen this ticket"
+        description="An admin will review your request. Tell them what is still wrong."
+        textLabel="What is still wrong?"
+        textRequired
+        confirmLabel="Send request"
+        submitting={saving}
+        onCancel={() => setDialog(null)}
+        onConfirm={({ text }) => runAction(() => incidentsApi.requestReopen(incident.id, text), 'Reopen requested')}
+      />
+      <ActionDialog
+        open={dialog === 'void'}
+        title="Void this ticket?"
+        description="Use this for duplicates or tickets raised by mistake. It disappears from lists and metrics but stays in the audit trail."
+        textLabel="Reason"
+        textRequired
+        confirmLabel="Void ticket"
+        danger
+        submitting={saving}
+        onCancel={() => setDialog(null)}
+        onConfirm={({ text }) => runAction(
+          () => incidentsApi.void(incident.id, { version: incident.version, reason: text }),
+          'Ticket voided',
+        )}
+      />
+      <ActionDialog
+        open={dialog === 'decide'}
+        title={decision ? `${decision.choice === 'approved' ? 'Approve' : 'Reject'} ${REQUEST_LABELS[decision.request.type].toLowerCase()} request` : ''}
+        description={decision?.choice === 'approved'
+          ? (decision.request.type === 'reopen' ? 'The ticket goes back to In progress.' : 'The ticket is archived and becomes read-only.')
+          : 'Tell the requester why. The note is saved in the ticket history.'}
+        textLabel={decision?.choice === 'rejected' ? 'Note to the requester' : undefined}
+        textRequired={decision?.choice === 'rejected'}
+        confirmLabel={decision?.choice === 'approved' ? 'Approve' : 'Reject'}
+        danger={decision?.choice === 'rejected'}
+        submitting={saving}
+        onCancel={() => { setDialog(null); setDecision(null); }}
+        onConfirm={({ text }) => runAction(
+          () => incidentsApi.decideRequest(incident.id, decision.request.id, {
+            decision: decision.choice, ...(text ? { note: text } : {}),
+          }),
+          decision.choice === 'approved' ? 'Request approved' : 'Request rejected',
+        )}
+      />
 
       <TransitionDialog
         target={target}
