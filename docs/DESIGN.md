@@ -101,3 +101,63 @@ Start/stop timer for work logs, email notifications, SSO, pagination, admin-mana
 7. facilities + engineers services and pages; Approvals page
 8. Recurring issues + shift stats
 9. Tests + README
+
+
+
+## 13. Resilience, scalability & maintainability
+
+### 13.1 Code structure (per service)
+- `function.py` = routing only (method + path -> handler function)
+- `service.py` = business logic and rules (no SQL, no HTTP)
+- `repository.py` = SQL only (parameterized queries)
+- `_shared/errors.py` = ValidationError(400), Unauthorized(401), Forbidden(403), NotFound(404), Conflict(409)
+- One wrapper in `_shared/http.py` catches these and returns `{"error", "details"}` with the right status. Unexpected exceptions -> 500 with a generic message; full details logged only. Never return stack traces.
+
+### 13.2 Data integrity
+- Every multi-table write runs in ONE transaction (`with conn.transaction():`), e.g. status change + event row, close + approval request.
+- DB constraints as second line of defense: NOT NULL, FOREIGN KEY, UNIQUE(email), CHECK for enums (status, priority, role, shift), CHECK(hours > 0 AND hours <= 12).
+- Optimistic locking: `incidents.version INT`. Updates send the version they loaded; `UPDATE ... WHERE id = %s AND version = %s`, 0 rows -> 409 "This ticket was updated by someone else. Refresh to see the latest."
+- All timestamps `TIMESTAMPTZ` stored in UTC. Shift times use one constant `ACME_TIMEZONE = "America/New_York"`; night shift (23-07) crosses midnight and must be tested.
+- Indexes: incidents(status), incidents(reporter_id), incidents(building_id, floor_id, seat_id, issue_type, created_at), incident_engineers(engineer_id), incident_events(incident_id), incident_notes(incident_id), incident_work_logs(incident_id).
+
+### 13.3 Input validation limits
+- Strings are trimmed; empty after trim = missing. title <= 200, description <= 5000, note <= 2000, reason <= 1000 chars.
+- Unknown fields in request bodies are rejected (400). Malformed JSON -> 400, not 500.
+- Referenced IDs must exist AND be consistent (seat belongs to floor, floor belongs to building) -> 400.
+
+### 13.4 Edge cases (each returns a clear error, usually 409)
+- Changing an archived or voided incident -> 409.
+- Reopen request while one is already pending -> 409. Same for close approval.
+- Acknowledging the same ticket twice in the same shift -> returns existing ack (idempotent), no duplicate.
+- Joining a ticket you're already on -> 200, no duplicate row.
+- Priority "change" to the same value -> no-op, no event logged.
+- Deleting a building/floor/seat that has incidents -> 409 (explain why). Delete otherwise OK.
+- Engineer set unavailable while primary on open tickets -> allowed, but admin dashboard flags those tickets as "needs reassignment".
+- Work log by an engineer no longer on the ticket -> 403.
+- Registering an existing email -> 409. Login failure always says "Invalid email or password" (don't reveal which accounts exist).
+
+### 13.5 Scalability
+- Lambdas are stateless -> scale horizontally; DB connection reused per container and reset on failure (like `_examples`); `connect_timeout=10`, `statement_timeout=10s`.
+- All list endpoints paginated: `?page=&page_size=` (default 25, max 100), response `{"items": [], "total": n, "page": p}`.
+- Dashboard aggregates done in SQL (GROUP BY), never by loading rows into Python.
+
+### 13.6 Auth resilience
+- Access token lifetime 8h (one shift). `POST /api/auth/refresh` issues a new token while the current one is still valid; frontend refreshes when < 30 min remain.
+- Expired/invalid token -> 401 with a clear message; frontend logs out and shows "Your session expired, please log in again."
+
+### 13.7 Observability
+- One structured JSON log line per request: request_id (Lambda `context.aws_request_id`), user_id, method, path, status, duration_ms. Errors logged with stack trace.
+- `GET /api/auth/health` -> checks DB with `SELECT 1`, returns 200 or 503.
+
+### 13.8 Frontend resilience
+- `api.js` handles in one place: 401 -> logout + redirect; 403 -> "You don't have permission"; 409 -> show message + "Refresh" action; 400 -> map `details` to form fields; network error -> "Can't reach the server. Check your connection and try again."
+- React ErrorBoundary around routes with a friendly fallback + "Reload" button.
+- Every page has loading, empty and error states. Buttons disabled while requests are in flight (prevents double submits).
+
+### 13.9 Tests for this section
+- rules: every allowed and forbidden transition; missed-shift across midnight; recurring threshold boundaries (2 vs 3).
+- API: 400/403/404/409 for the edge cases above; optimistic lock conflict.
+- Frontend: api.js error mapping (401, 409, network error).
+
+### 13.10 Production considerations (README only, not built)
+RDS Proxy for connection pooling under high Lambda concurrency; rate limiting on login (API Gateway/WAF); Alembic migrations; retry with backoff for transient DB errors; caching dashboard queries; CloudWatch alarms on 5xx rate; refresh-token rotation.
