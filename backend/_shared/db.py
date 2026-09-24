@@ -20,7 +20,9 @@ from psycopg.rows import dict_row
 from _shared.schema import SCHEMA_SQL
 from _shared.seed import seed_if_empty
 
-CONNECT_TIMEOUT_SECONDS = 10
+# Aurora Serverless pauses when idle and takes about 15 s to resume. 25 s lets the
+# first request after a pause wait it out, and stays under CloudFront's 30 s origin timeout.
+CONNECT_TIMEOUT_SECONDS = 25
 
 # A query is plain SQL text, or one composed safely with psycopg.sql.
 Query = str | sql.Composable
