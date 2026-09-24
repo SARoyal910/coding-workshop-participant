@@ -20,7 +20,7 @@ import { EmptyState, ErrorState, LoadingState } from '../components/PageState';
 import useApiData from '../hooks/useApiData';
 import useNotify from '../hooks/useNotify';
 import { incidentsApi } from '../services/api';
-import { REQUEST_LABELS, formatDateTime } from '../constants';
+import { REQUEST_LABELS, formatDateTime, REFRESH_MS } from '../constants';
 import { bulkSummary, runBulk } from '../bulk';
 
 const PAGE_SIZE = 25;
@@ -139,7 +139,7 @@ export default function ApprovalsPage() {
   );
   const {
     data, error, loading, reload,
-  } = useApiData(loader);
+  } = useApiData(loader, { refreshMs: REFRESH_MS });
   // The requests being decided and the decision: {requests, decision}.
   const [pending, setPending] = useState(null);
   const [saving, setSaving] = useState(false);

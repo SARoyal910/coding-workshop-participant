@@ -19,6 +19,7 @@ route needs a Bearer token.
     POST /{id}/notes             -> 201 note              admin or engineer on the ticket
     PUT  /{id}/notes/{note_id}   -> 200 note              author only
     POST /{id}/join              -> 200 incident          engineer joins (primary if first, else helper)
+    POST /{id}/assign            -> 200 incident          admin makes an engineer primary (reassign)
     POST /{id}/acknowledge       -> 200 incident          engineer commits for this shift
     POST /{id}/priority          -> 200 incident          admin only, with reason (needs version)
     POST /{id}/requests          -> 200 incident          reporter asks to reopen, with reason
@@ -126,6 +127,11 @@ def decide_request(event: dict, user: dict, params: dict) -> dict:
     )
 
 
+def assign_engineer(event: dict, user: dict, params: dict) -> dict:
+    """POST /{id}/assign"""
+    return json_response(200, service.assign_engineer(user, params["id"], parse_json_body(event)))
+
+
 def list_site_alerts(event: dict, user: dict, params: dict) -> dict:
     """GET /alerts"""
     return json_response(200, service.list_site_alerts(user))
@@ -162,6 +168,7 @@ ROUTES = [
     ("POST", "/{id}/notes", add_note),
     ("PUT", "/{id}/notes/{note_id}", edit_note),
     ("POST", "/{id}/join", join_incident),
+    ("POST", "/{id}/assign", assign_engineer),
     ("POST", "/{id}/acknowledge", acknowledge_incident),
     ("POST", "/{id}/priority", change_priority),
     ("POST", "/{id}/requests", request_reopen),

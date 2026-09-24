@@ -139,6 +139,11 @@ def can_decide_requests(user: dict) -> bool:
     return user["role"] == "admin"
 
 
+def can_assign(user: dict, status: str) -> bool:
+    """Only admins assign or reassign the primary engineer, while the ticket is active."""
+    return user["role"] == "admin" and status in ACTIVE_STATUSES
+
+
 def can_void(user: dict) -> bool:
     """Only admins may void an erroneous incident."""
     return user["role"] == "admin"

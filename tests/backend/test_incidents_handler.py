@@ -549,3 +549,82 @@ def test_several_seats_are_recorded_with_the_first_as_main_seat(incidents, monke
     status, _ = call(incidents, "POST", "/api/incidents", REPORTER, {**MULTI_SEAT_REPORT, "seat_ids": [7, 5, 7]})
     assert status == 201
     assert (saved["seat_id"], saved["all_seats"]) == (7, [7, 5])
+
+
+# ---------- admin assigns or reassigns the primary engineer ----------
+
+ASSIGN_PATH = f"/api/incidents/{INCIDENT_ID}/assign"
+
+
+@pytest.fixture
+def assignable(incidents, monkeypatch):
+    """Tom (21) is available; Priya (20) is the current primary."""
+    repo = incidents.repository
+    engineers = {
+        21: {"id": 21, "name": "Tom Becker", "is_available": True},
+        22: {"id": 22, "name": "Lena Ortiz", "is_available": False},
+    }
+    monkeypatch.setattr(repo, "get_engineer", engineers.get)
+    monkeypatch.setattr(repo, "get_engineers", lambda incident_id: [{"id": 20, "name": "Priya Nair", "role": "primary"}])
+    monkeypatch.setattr(repo, "mark_assigned", lambda incident_id: None)
+
+    def set_primary(incident_id, engineer_id, assigned_by):
+        incidents.writes.append(("set_primary", engineer_id))
+        return {"id": 20, "name": "Priya Nair"}
+
+    monkeypatch.setattr(repo, "set_primary", set_primary)
+    events = []
+    monkeypatch.setattr(repo, "add_event", lambda *args, **kwargs: events.append(args))
+    incidents.events = events
+    return incidents
+
+
+@pytest.mark.parametrize("user", [REPORTER, ASSIGNED_ENGINEER])
+def test_only_admins_assign(assignable, user):
+    """Engineers take tickets themselves; assigning someone else is an admin action."""
+    status, body = call(assignable, "POST", ASSIGN_PATH, user, {"engineer_id": 21})
+    assert (status, body["error"]) == (403, "Only an admin can assign engineers")
+    assert not assignable.writes
+
+
+def test_assign_unknown_engineer_is_400(assignable):
+    status, body = call(assignable, "POST", ASSIGN_PATH, ADMIN, {"engineer_id": 99})
+    assert (status, body["details"]) == (400, {"engineer_id": "Engineer not found"})
+
+
+def test_assign_unavailable_engineer_is_409(assignable):
+    """The point of reassigning is to reach someone who can do it."""
+    status, body = call(assignable, "POST", ASSIGN_PATH, ADMIN, {"engineer_id": 22})
+    assert (status, body["error"]) == (409, "Lena Ortiz is marked unavailable")
+
+
+def test_assign_resolved_ticket_is_409(assignable):
+    assignable.incident = incident_row(status="resolved")
+    status, _ = call(assignable, "POST", ASSIGN_PATH, ADMIN, {"engineer_id": 21})
+    assert status == 409
+
+
+def test_reassign_logs_old_and_new_engineer(assignable):
+    """The audit event names who had it and who has it now."""
+    status, _ = call(assignable, "POST", ASSIGN_PATH, ADMIN, {"engineer_id": 21})
+    assert status == 200
+    assert ("set_primary", 21) in assignable.writes
+    assert (INCIDENT_ID, ADMIN["id"], "engineer_reassigned", "Priya Nair", "Tom Becker") in assignable.events
+
+
+def test_assigning_current_primary_changes_nothing(assignable, monkeypatch):
+    monkeypatch.setattr(assignable.repository, "get_engineer",
+                        lambda engineer_id: {"id": 20, "name": "Priya Nair", "is_available": True})
+    status, _ = call(assignable, "POST", ASSIGN_PATH, ADMIN, {"engineer_id": 20})
+    assert status == 200
+    assert not assignable.writes
+
+
+def test_assign_race_is_409(assignable, monkeypatch):
+    """If an engineer takes the ticket at the same moment, the admin is told to refresh."""
+    def taken(*args):
+        raise assignable.repository.PrimaryTaken()
+
+    monkeypatch.setattr(assignable.repository, "set_primary", taken)
+    status, body = call(assignable, "POST", ASSIGN_PATH, ADMIN, {"engineer_id": 21})
+    assert (status, body["error"]) == (409, "Another engineer took this ticket just now. Refresh and try again.")

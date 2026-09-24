@@ -8,6 +8,7 @@ function here runs on the same shared connection, so calls made inside a
 
 from typing import Any
 
+import psycopg
 from psycopg import sql
 
 from _shared import db
@@ -35,6 +36,10 @@ LIST_SELECT = """
       LEFT JOIN seats s ON s.id = i.seat_id
       JOIN users r ON r.id = i.reporter_id
 """
+
+class PrimaryTaken(Exception):
+    """Another engineer became primary at the same moment (the unique index rejected the change)."""
+
 
 ON_TICKET = "EXISTS (SELECT 1 FROM incident_engineers ie WHERE ie.incident_id = i.id AND ie.engineer_id = %s)"
 UNASSIGNED = "NOT EXISTS (SELECT 1 FROM incident_engineers ie WHERE ie.incident_id = i.id)"
@@ -454,6 +459,49 @@ def add_engineer(incident_id: int, engineer_id: int) -> str | None:
             {"incident_id": incident_id, "engineer_id": engineer_id},
         )
     return row["role"] if row else None
+
+
+def get_engineer(engineer_id: int) -> dict | None:
+    """Return an engineer's id, name and availability, or None if there is no such engineer."""
+    return db.fetch_one(
+        "SELECT u.id, u.name, p.is_available FROM users u JOIN engineer_profiles p ON p.user_id = u.id"
+        " WHERE u.id = %s AND u.role = 'engineer'",
+        (engineer_id,),
+    )
+
+
+def set_primary(incident_id: int, engineer_id: int, assigned_by: int) -> dict | None:
+    """
+    Make an engineer the ticket's primary, taking the ticket off the previous
+    primary (who is removed, since reassigning usually means they can't do it).
+    If the new engineer was a helper, they are promoted.
+
+    The previous primary is removed before the new one is set, so the unique
+    index uq_incident_engineers_primary is never violated inside the
+    transaction. If an engineer takes the ticket at the same moment, the index
+    rejects one of the two and the caller reports a conflict.
+
+    Returns:
+        The previous primary as {"id", "name"}, or None if there was none.
+
+    Raises:
+        PrimaryTaken: the race described above.
+    """
+    previous = db.fetch_one(
+        "DELETE FROM incident_engineers ie USING users u"
+        " WHERE ie.incident_id = %s AND ie.role = 'primary' AND ie.engineer_id <> %s AND u.id = ie.engineer_id"
+        " RETURNING u.id, u.name",
+        (incident_id, engineer_id),
+    )
+    try:
+        db.execute(
+            "INSERT INTO incident_engineers (incident_id, engineer_id, role, added_by) VALUES (%s, %s, 'primary', %s)"
+            " ON CONFLICT (incident_id, engineer_id) DO UPDATE SET role = 'primary'",
+            (incident_id, engineer_id, assigned_by),
+        )
+    except psycopg.errors.UniqueViolation as exc:
+        raise PrimaryTaken from exc
+    return previous
 
 
 def mark_assigned(incident_id: int) -> None:

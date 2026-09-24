@@ -119,6 +119,7 @@ export const incidentsApi = {
   addNote: (id, body) => request('POST', `/incidents/${id}/notes`, { body: { body } }),
   editNote: (id, noteId, body) => request('PUT', `/incidents/${id}/notes/${noteId}`, { body: { body } }),
   join: (id) => request('POST', `/incidents/${id}/join`),
+  assign: (id, engineerId) => request('POST', `/incidents/${id}/assign`, { body: { engineer_id: engineerId } }),
   acknowledge: (id) => request('POST', `/incidents/${id}/acknowledge`),
   changePriority: (id, fields) => request('POST', `/incidents/${id}/priority`, { body: fields }),
   requestReopen: (id, reason) => request('POST', `/incidents/${id}/requests`, { body: { reason } }),

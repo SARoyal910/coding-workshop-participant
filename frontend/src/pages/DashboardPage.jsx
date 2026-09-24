@@ -27,7 +27,7 @@ import useAuth from '../hooks/useAuth';
 import useApiData from '../hooks/useApiData';
 import { dashboardApi } from '../services/api';
 import {
-  CATEGORY_LABELS, PRIORITY_LABELS, SHIFT_LABELS, formatDateTime, formatHours,
+  CATEGORY_LABELS, PRIORITY_LABELS, SHIFT_LABELS, formatDateTime, formatHours, REFRESH_MS,
 } from '../constants';
 
 /** Bar color: slot 1 of the validated data-viz palette (passes lightness, chroma and contrast checks). */
@@ -491,7 +491,7 @@ export default function DashboardPage() {
   const { user } = useAuth();
   const {
     data, error, loading, reload,
-  } = useApiData(loadDashboard);
+  } = useApiData(loadDashboard, { refreshMs: REFRESH_MS });
   const View = VIEWS[user.role] || EmployeeDashboard;
 
   return (
@@ -500,9 +500,9 @@ export default function DashboardPage() {
       <Typography color="text.secondary" sx={{ mb: 3 }}>
         {user.role === 'admin' ? 'Facility and technology incidents across ACME.' : "Here's where things stand."}
       </Typography>
-      {loading && <LoadingState label="Loading dashboard…" />}
+      {loading && !data && <LoadingState label="Loading dashboard…" />}
       {error && <ErrorState error={error} onRetry={reload} />}
-      {data && !loading && <View data={data} />}
+      {data && <View data={data} />}
     </Box>
   );
 }

@@ -501,6 +501,32 @@ def test_report_covering_several_seats(handlers):
     assert [item["seat_count"] for item in page["items"]] == [3]
 
 
+def test_admin_reassigns_the_primary_engineer(handlers):
+    """The old primary comes off the ticket, a helper can be promoted, and the change is logged."""
+    incidents = handlers["incidents"]
+    reporter_token = login(handlers, "dana.whitfield@acme.inc", TEST_SEED_PASSWORD)
+    priya_token = login(handlers, "priya.nair@acme.inc", TEST_SEED_PASSWORD)
+    jordan_token = login(handlers, "jordan.lee@acme.inc", TEST_SEED_PASSWORD)
+    admin_token = login(handlers, "admin@acme.inc", TEST_SEED_PASSWORD)
+    _, options = call(incidents, "GET", "/api/incidents/options", token=reporter_token)
+    building = options["buildings"][0]
+    status, ticket = call(incidents, "POST", "/api/incidents", {
+        "title": "Integration test reassign", "description": "Dock is dead.", "category": "IT",
+        "issue_type": "Docking station", "building_id": building["id"], "floor_id": building["floors"][0]["id"],
+    }, reporter_token)
+    assert status == 201, ticket
+    base = f"/api/incidents/{ticket['id']}"
+    call(incidents, "POST", f"{base}/join", token=priya_token)   # primary
+    _, ticket = call(incidents, "POST", f"{base}/join", token=jordan_token)  # helper
+    jordan_id = next(e["id"] for e in ticket["engineers"] if e["name"] == "Jordan Lee")
+
+    status, ticket = call(incidents, "POST", f"{base}/assign", {"engineer_id": jordan_id}, admin_token)
+    assert status == 200, ticket
+    assert [(e["name"], e["role"]) for e in ticket["engineers"]] == [("Jordan Lee", "primary")]
+    event = next(e for e in ticket["events"] if e["type"] == "engineer_reassigned")
+    assert (event["from_value"], event["to_value"]) == ("Priya Nair", "Jordan Lee")
+
+
 def test_critical_incident_is_a_site_alert(handlers):
     """
     Only an admin may report critical; while it is active every role sees it

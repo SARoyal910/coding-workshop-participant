@@ -6,7 +6,9 @@ import Link from '@mui/material/Link';
 import Stack from '@mui/material/Stack';
 import useApiData from '../hooks/useApiData';
 import { incidentsApi } from '../services/api';
-import { STATUS_LABELS, formatLocation, formatStatusAge } from '../constants';
+import {
+  REFRESH_MS, STATUS_LABELS, formatLocation, formatStatusAge,
+} from '../constants';
 
 /**
  * Site-wide alert: every active critical incident, shown to every role on
@@ -19,7 +21,7 @@ export default function SiteAlertBanner() {
   // pathname is a dependency on purpose: a new page means a fresh check.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const loader = useCallback(() => incidentsApi.alerts(), [pathname]);
-  const { data } = useApiData(loader);
+  const { data } = useApiData(loader, { refreshMs: REFRESH_MS });
   const alerts = data?.items || [];
   if (!alerts.length) return null;
 

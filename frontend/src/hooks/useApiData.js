@@ -9,9 +9,11 @@ import { useCallback, useEffect, useState } from 'react';
  *
  * @param {function(): Promise<*>} loader Calls the API. Wrap it in useCallback so it
  *   only changes when its inputs change; each change triggers a new load.
+ * @param {{refreshMs?: number}} [options] refreshMs: reload in the background this
+ *   often while the tab is visible, so the page stays current without websockets.
  * @returns {{data: *, error: Error|null, loading: boolean, reload: function(): void, setData: function}}
  */
-export default function useApiData(loader) {
+export default function useApiData(loader, { refreshMs = 0 } = {}) {
   const [reloadKey, setReloadKey] = useState(0);
   const [result, setResult] = useState({
     loader: null, reloadKey: -1, data: null, error: null,
@@ -31,6 +33,14 @@ export default function useApiData(loader) {
   }, [loader, reloadKey]);
 
   const reload = useCallback(() => setReloadKey((key) => key + 1), []);
+
+  useEffect(() => {
+    if (!refreshMs) return undefined;
+    const timer = setInterval(() => {
+      if (document.visibilityState === 'visible') reload();
+    }, refreshMs);
+    return () => clearInterval(timer);
+  }, [refreshMs, reload]);
   const setData = useCallback((data) => setResult((current) => ({ ...current, data })), []);
 
   const sameQuery = result.loader === loader;

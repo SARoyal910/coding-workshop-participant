@@ -39,7 +39,7 @@ import useNotify from '../hooks/useNotify';
 import { bulkSummary, runBulk } from '../bulk';
 import { incidentsApi } from '../services/api';
 import {
-  CATEGORY_LABELS, PRIORITY_LABELS, STATUS_LABELS, formatDateTime, formatLocation, formatStatusAge,
+  CATEGORY_LABELS, PRIORITY_LABELS, STATUS_LABELS, formatDateTime, formatLocation, formatStatusAge, REFRESH_MS,
 } from '../constants';
 
 const PAGE_SIZES = [10, 25, 50];
@@ -153,7 +153,7 @@ function IncidentTable({ items, onOpen, selection = null }) {
                 <Typography variant="body2">{incident.issue_type}</Typography>
                 <Typography variant="caption" color="text.secondary">{CATEGORY_LABELS[incident.category]}</Typography>
               </TableCell>
-              <TableCell sx={{ whiteSpace: 'nowrap' }}>{formatLocation(incident)}</TableCell>
+              <TableCell sx={{ minWidth: 160 }}>{formatLocation(incident)}</TableCell>
               <TableCell>{incident.primary_engineer_name || <Typography variant="body2" color="text.secondary">Unassigned</Typography>}</TableCell>
               <TableCell sx={{ whiteSpace: 'nowrap' }}>{formatDateTime(incident.updated_at)}</TableCell>
             </TableRow>
@@ -262,7 +262,7 @@ export default function IncidentListPage() {
   }, [queryString, scope]);
   const {
     data, error, loading, reload,
-  } = useApiData(loader);
+  } = useApiData(loader, { refreshMs: REFRESH_MS });
 
   // Bulk actions: engineers take or join tickets, admins change priority or void.
   // Selected ids that are no longer on the page are ignored.

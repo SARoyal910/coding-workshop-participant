@@ -70,6 +70,9 @@ export const REQUEST_LABELS = {
   rejected: 'Rejected',
 };
 
+/** How often lists, tickets, the dashboard and approvals refresh in the background. */
+export const REFRESH_MS = 30000;
+
 /** Human-readable text for audit events. */
 export const EVENT_LABELS = {
   created: 'Reported the incident',
@@ -78,6 +81,7 @@ export const EVENT_LABELS = {
   status_changed: 'Changed the status',
   priority_changed: 'Changed the priority',
   engineer_joined: 'Joined the ticket',
+  engineer_reassigned: 'Assigned the ticket',
   acknowledged: 'Acknowledged for this shift',
   note_added: 'Added a note',
   note_edited: 'Edited a note',

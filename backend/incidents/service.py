@@ -40,6 +40,7 @@ CREATE_FIELDS = {
     "title", "description", "category", "issue_type", "priority", "building_id", "floor_id", "seat_id", "seat_ids",
 }
 SEATS_MAX = 20  # seats one report may cover
+ASSIGN_FIELDS = {"engineer_id"}
 UPDATE_FIELDS = {"version", "title", "description"}
 STATUS_FIELDS = {"version", "status", "reason", "resolution_note"}
 NOTE_FIELDS = {"body"}
@@ -204,6 +205,7 @@ def get_incident(user: dict, incident_id: int) -> dict:
             ),
             "can_decide_requests": allowed(rules.can_decide_requests(user) and bool(pending_types)),
             "can_void": allowed(rules.can_void(user)),
+            "can_assign": allowed(rules.can_assign(user, status)),
             "can_log_work": allowed(rules.can_log_work(user, engineer_ids)),
         },
     }
@@ -525,6 +527,53 @@ def join_incident(user: dict, incident_id: int) -> dict:
             repository.mark_assigned(incident_id)
         if role is not None:
             repository.add_event(incident_id, user["id"], "engineer_joined", to_value=role)
+    return get_incident(user, incident_id)
+
+
+def assign_engineer(user: dict, incident_id: int, data: dict) -> dict:
+    """
+    An admin makes an engineer the primary on an active ticket, for example
+    when the current primary is unavailable. The previous primary is taken
+    off the ticket; helpers stay. Logged as engineer_reassigned (old -> new).
+    Assigning the engineer who is already primary changes nothing.
+
+    Raises:
+        Forbidden: not an admin.
+        ValidationError: missing engineer_id, or no such engineer.
+        Conflict: archived/voided or not active, the engineer is unavailable,
+            or an engineer took the ticket at the same moment.
+    """
+    incident, engineer_ids = _load_visible(user, incident_id)
+    if user["role"] != "admin":
+        raise Forbidden("Only an admin can assign engineers")
+    _ensure_changeable(incident)
+    if not rules.can_assign(user, incident["status"]):
+        raise Conflict("Only open, in progress or blocked tickets can be assigned")
+
+    errors: dict[str, str] = {}
+    reject_unknown_fields(data, ASSIGN_FIELDS, errors)
+    engineer_id = get_int(data, "engineer_id", errors)
+    raise_if_errors(errors)
+    engineer = repository.get_engineer(engineer_id)
+    if engineer is None:
+        raise ValidationError("Validation failed", {"engineer_id": "Engineer not found"})
+    if not engineer["is_available"]:
+        raise Conflict(f"{engineer['name']} is marked unavailable")
+
+    current = next((e for e in repository.get_engineers(incident_id) if e["role"] == "primary"), None)
+    if current and current["id"] == engineer_id:
+        return get_incident(user, incident_id)
+
+    try:
+        with repository.transaction():
+            previous = repository.set_primary(incident_id, engineer_id, user["id"])
+            repository.mark_assigned(incident_id)
+            repository.add_event(
+                incident_id, user["id"], "engineer_reassigned",
+                previous["name"] if previous else None, engineer["name"],
+            )
+    except repository.PrimaryTaken as exc:
+        raise Conflict("Another engineer took this ticket just now. Refresh and try again.") from exc
     return get_incident(user, incident_id)
 
 

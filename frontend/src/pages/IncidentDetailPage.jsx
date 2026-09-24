@@ -31,10 +31,11 @@ import WorkLogPanel from '../components/WorkLogPanel';
 import useAuth from '../hooks/useAuth';
 import useNotify from '../hooks/useNotify';
 import useApiData from '../hooks/useApiData';
-import { incidentsApi } from '../services/api';
+import { engineersApi, incidentsApi } from '../services/api';
+import rankEngineers from '../assign';
 import {
   CATEGORY_LABELS, PRIORITY_LABELS, REQUEST_LABELS, STATUS_LABELS, TRANSITION_LABELS, formatDateTime, formatLocation,
-  formatStatusAge,
+  formatStatusAge, REFRESH_MS,
 } from '../constants';
 
 const PRIORITY_CHOICES = Object.entries(PRIORITY_LABELS).map(([value, label]) => ({ value, label }));
@@ -70,7 +71,7 @@ export default function IncidentDetailPage() {
   const loader = useCallback(() => incidentsApi.get(id), [id]);
   const {
     data: incident, error, loading, reload, setData,
-  } = useApiData(loader);
+  } = useApiData(loader, { refreshMs: REFRESH_MS });
   const [tab, setTab] = useState('notes');
   const [target, setTarget] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -78,6 +79,8 @@ export default function IncidentDetailPage() {
   // Which action dialog is open: 'priority' | 'reopen' | 'void' | 'decide', and the request being decided.
   const [dialog, setDialog] = useState(null);
   const [decision, setDecision] = useState(null);
+  // Ranked engineer choices for the admin's Assign dialog, loaded when it opens.
+  const [assignChoices, setAssignChoices] = useState([]);
 
   /** Show an API error; conflicts (409) get a Refresh action (DESIGN.md 13.8). */
   const showError = useCallback((err) => {
@@ -125,6 +128,23 @@ export default function IncidentDetailPage() {
       if (err.status === 409) { setDialog(null); setDecision(null); }
     } finally {
       setSaving(false);
+    }
+  };
+
+  /** Load available engineers, best match first, then open the Assign dialog. */
+  const openAssign = async () => {
+    try {
+      const { items } = await engineersApi.list({ page_size: 100 });
+      const primary = incident.engineers.find((engineer) => engineer.role === 'primary');
+      const choices = rankEngineers(items, incident.category, primary?.id ?? null);
+      if (!choices.length) {
+        notify('No other engineer is available right now', 'warning');
+        return;
+      }
+      setAssignChoices(choices);
+      setDialog('assign');
+    } catch (err) {
+      showError(err);
     }
   };
 
@@ -246,6 +266,11 @@ export default function IncidentDetailPage() {
               {TRANSITION_LABELS[status]}
             </Button>
           ))}
+          {actions.can_assign && (
+            <Button variant="outlined" onClick={openAssign}>
+              {incident.engineers.some((engineer) => engineer.role === 'primary') ? 'Reassign' : 'Assign engineer'}
+            </Button>
+          )}
           {actions.can_change_priority && (
             <Button variant="outlined" onClick={() => setDialog('priority')}>Change priority</Button>
           )}
@@ -375,6 +400,21 @@ export default function IncidentDetailPage() {
         submitting={saving}
         onCancel={() => setDialog(null)}
         onConfirm={({ text }) => runAction(() => incidentsApi.requestReopen(incident.id, text), 'Reopen requested')}
+      />
+      <ActionDialog
+        open={dialog === 'assign'}
+        title={incident.engineers.some((engineer) => engineer.role === 'primary') ? 'Reassign this ticket' : 'Assign an engineer'}
+        description="The engineer becomes primary. The current primary comes off the ticket; helpers stay. Available engineers only, best match first."
+        choiceLabel="Engineer"
+        choices={assignChoices}
+        initialChoice={assignChoices[0]?.value || ''}
+        confirmLabel="Assign"
+        submitting={saving}
+        onCancel={() => setDialog(null)}
+        onConfirm={({ choice }) => runAction(
+          () => incidentsApi.assign(incident.id, Number(choice)),
+          (updated) => `Assigned to ${updated.engineers.find((engineer) => engineer.role === 'primary')?.name}`,
+        )}
       />
       <ActionDialog
         open={dialog === 'void'}
