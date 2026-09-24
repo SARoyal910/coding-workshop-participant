@@ -18,13 +18,19 @@ const STEP_INDEX = {
 
 /**
  * Shows where a ticket is in the workflow. Blocked is shown in red on the
- * "In progress" step; archived tickets show every step complete.
- * @param {{status: string, archived?: boolean}} props
+ * "In progress" step; archived tickets show every step complete. A voided
+ * ticket ends on a red "Voided" step instead of "Archived", with only the
+ * steps it actually reached marked complete.
+ * @param {{status: string, archived?: boolean, voided?: boolean}} props
  * @returns {JSX.Element}
  */
-export default function WorkflowStepper({ status, archived = false }) {
+export default function WorkflowStepper({ status, archived = false, voided = false }) {
   const isMobile = useMediaQuery({ maxWidth: 600 });
-  const activeStep = archived ? STEPS.length : STEP_INDEX[status] ?? 0;
+  const reached = STEP_INDEX[status] ?? 0;
+  const lastStep = STEPS.length - 1;
+  let activeStep = reached;
+  if (voided) activeStep = lastStep;
+  else if (archived) activeStep = STEPS.length;
 
   return (
     <Stepper
@@ -34,14 +40,17 @@ export default function WorkflowStepper({ status, archived = false }) {
       aria-label="Ticket progress"
     >
       {STEPS.map((label, index) => {
-        const isBlocked = status === 'blocked' && index === 1 && !archived;
+        const isBlocked = status === 'blocked' && index === 1 && !archived && !voided;
+        const isVoidedStep = voided && index === lastStep;
+        // A voided ticket skipped the steps between where it stopped and "Voided".
+        const completed = voided ? index <= reached : undefined;
         return (
-          <Step key={label}>
+          <Step key={label} completed={completed}>
             <StepLabel
-              error={isBlocked}
+              error={isBlocked || isVoidedStep}
               optional={isBlocked ? <Typography variant="caption" color="error">Blocked</Typography> : null}
             >
-              {label}
+              {isVoidedStep ? 'Voided' : label}
             </StepLabel>
           </Step>
         );
@@ -53,4 +62,5 @@ export default function WorkflowStepper({ status, archived = false }) {
 WorkflowStepper.propTypes = {
   status: PropTypes.oneOf(['open', 'in_progress', 'blocked', 'resolved', 'closed']).isRequired,
   archived: PropTypes.bool,
+  voided: PropTypes.bool,
 };

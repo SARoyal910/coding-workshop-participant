@@ -316,7 +316,7 @@ export default function IncidentDetailPage() {
       />
 
       <Paper sx={{ p: { xs: 2, sm: 3 }, mb: 2 }}>
-        <WorkflowStepper status={incident.status} archived={incident.is_archived} />
+        <WorkflowStepper status={incident.status} archived={incident.is_archived} voided={incident.is_voided} />
       </Paper>
 
       <Grid container spacing={2}>

@@ -48,4 +48,20 @@ describe('WorkflowStepper', () => {
       expect(stepLabel(name).querySelector('.Mui-completed')).not.toBeNull();
     });
   });
+
+  it('ends a voided ticket on a red "Voided" step, with only the steps it reached complete', () => {
+    render(<WorkflowStepper status="open" archived voided />);
+    expect(screen.queryByText('Archived')).not.toBeInTheDocument();
+    expect(stepLabel('Voided').querySelector('.Mui-error')).not.toBeNull();
+    expect(stepLabel('Open').querySelector('.Mui-completed')).not.toBeNull();
+    ['In progress', 'Resolved', 'Closed'].forEach((name) => {
+      expect(stepLabel(name).querySelector('.Mui-completed')).toBeNull();
+    });
+  });
+
+  it('does not show a voided ticket as blocked', () => {
+    render(<WorkflowStepper status="blocked" archived voided />);
+    expect(screen.queryByText('Blocked')).not.toBeInTheDocument();
+    expect(stepLabel('In progress').querySelector('.Mui-completed')).not.toBeNull();
+  });
 });
