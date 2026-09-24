@@ -45,7 +45,8 @@ jobs:
           node-version: '24'
 
       - name: Install npm dependencies
-        run: npm ci --prefix ./frontend
+        # The workshop .gitignore excludes package-lock.json, and npm ci needs one.
+        run: npm install --prefix ./frontend
 
       - name: Run eslint
         run: npm run lint --prefix ./frontend

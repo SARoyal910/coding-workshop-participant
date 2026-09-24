@@ -14,15 +14,15 @@ from psycopg import sql
 from _shared import db
 from _shared.db import transaction  # noqa: F401  (re-exported for service.py)
 
-# When the ticket entered its current status (its last status change, or when it was reported).
-STATUS_SINCE = """
-    COALESCE((SELECT max(e.created_at) FROM incident_events e
-               WHERE e.incident_id = i.id AND e.type = 'status_changed'), i.created_at) AS status_since
-"""
+# status_since, used in several queries below, is when the ticket entered its current
+# status: its last status_changed event, or when it was reported. It is written out in
+# each query (not joined in from a constant) so every query stays one literal string.
 
 # Columns shown in lists, plus names for the location, reporter and primary engineer.
 LIST_SELECT = """
-    SELECT """ + STATUS_SINCE + """, i.id, i.title, i.category, i.issue_type, i.priority, i.status,
+    SELECT COALESCE((SELECT max(e.created_at) FROM incident_events e
+                      WHERE e.incident_id = i.id AND e.type = 'status_changed'), i.created_at) AS status_since,
+           i.id, i.title, i.category, i.issue_type, i.priority, i.status,
            i.created_at, i.updated_at, i.is_archived, i.version,
            b.name AS building_name, f.number AS floor_number, s.code AS seat_code,
            r.name AS reporter_name,
@@ -96,7 +96,9 @@ def list_site_alerts() -> list[dict]:
     """Return active critical incidents (not voided or archived), most recent first."""
     return db.fetch_all(
         "SELECT i.id, i.title, i.status, i.created_at, b.name AS building_name, f.number AS floor_number,"
-        "       s.code AS seat_code, " + STATUS_SINCE +
+        "       s.code AS seat_code,"
+        "       COALESCE((SELECT max(e.created_at) FROM incident_events e"
+        "                  WHERE e.incident_id = i.id AND e.type = 'status_changed'), i.created_at) AS status_since"
         "  FROM incidents i"
         "  JOIN buildings b ON b.id = i.building_id"
         "  JOIN floors f ON f.id = i.floor_id"
@@ -111,7 +113,9 @@ def get_incident(incident_id: int) -> dict | None:
     """Return one incident with location and reporter names, or None."""
     return db.fetch_one(
         "SELECT i.*, b.name AS building_name, f.number AS floor_number, s.code AS seat_code,"
-        "       r.name AS reporter_name, " + STATUS_SINCE +
+        "       r.name AS reporter_name,"
+        "       COALESCE((SELECT max(e.created_at) FROM incident_events e"
+        "                  WHERE e.incident_id = i.id AND e.type = 'status_changed'), i.created_at) AS status_since"
         "  FROM incidents i"
         "  JOIN buildings b ON b.id = i.building_id"
         "  JOIN floors f ON f.id = i.floor_id"
