@@ -16,6 +16,7 @@ backend/dev_server.py does. No value from it is ever printed.
 """
 
 import os
+from datetime import datetime
 from typing import Iterator
 
 import psycopg
@@ -650,6 +651,40 @@ def test_search_finds_an_incident_by_number(handlers):
     assert some in search(str(some))
     assert some in search(f"#{some}")
     assert search("zzzz-no-such-ticket") == []
+
+
+def test_labor_hours_are_capped_at_12_a_day_across_tickets(handlers):
+    """An engineer's work logs for one date can't add up to more than 12 hours, on any mix of tickets."""
+    incidents = handlers["incidents"]
+    reporter_token = login(handlers, "dana.whitfield@acme.inc", TEST_SEED_PASSWORD)
+    engineer_token = login(handlers, "sam.okafor@acme.inc", TEST_SEED_PASSWORD)
+    _, options = call(incidents, "GET", "/api/incidents/options", token=reporter_token)
+    building = options["buildings"][0]
+    tickets = []
+    for title in ("Integration test labor A", "Integration test labor B"):
+        status, ticket = call(incidents, "POST", "/api/incidents", {
+            "title": title, "description": "Needs work.", "category": "security", "issue_type": "Lock",
+            "building_id": building["id"], "floor_id": building["floors"][0]["id"],
+        }, reporter_token)
+        assert status == 201, ticket
+        call(incidents, "POST", f"/api/incidents/{ticket['id']}/join", token=engineer_token)
+        tickets.append(ticket["id"])
+    a, b = (f"/api/incidents/{tid}/work-logs" for tid in tickets)
+    from _shared.shifts import OFFICE_TZ  # the server checks "not in the future" in office time
+
+    day = {"work_date": datetime.now(OFFICE_TZ).date().isoformat()}
+
+    assert call(incidents, "POST", a, {**day, "hours": 8, "description": "Morning"}, engineer_token)[0] == 200
+    status, body = call(incidents, "POST", b, {**day, "hours": 5, "description": "Afternoon"}, engineer_token)
+    assert status == 400 and "limit is 12" in body["details"]["hours"]
+    status, ticket_b = call(incidents, "POST", b, {**day, "hours": 4, "description": "Afternoon"}, engineer_token)
+    assert status == 200  # exactly 12
+
+    # Editing counts the other entries but not the one being edited.
+    log_a = next(w for w in call(incidents, "GET", f"/api/incidents/{tickets[0]}", token=engineer_token)[1]["work_logs"])
+    edit = f"{a}/{log_a['id']}"
+    assert call(incidents, "PUT", edit, {**day, "hours": 8, "description": "Morning, rewired"}, engineer_token)[0] == 200
+    assert call(incidents, "PUT", edit, {**day, "hours": 8.25, "description": "Morning"}, engineer_token)[0] == 400
 
 
 def test_critical_incident_is_a_site_alert(handlers):

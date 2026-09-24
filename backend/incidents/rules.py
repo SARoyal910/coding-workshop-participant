@@ -99,6 +99,7 @@ REOPENABLE_STATUSES = ("resolved", "closed")
 HOURS_STEP = 0.25
 HOURS_MIN = 0.25
 HOURS_MAX = 12
+DAY_HOURS_MAX = 12  # one engineer, one day, all tickets together
 
 
 def can_join(user: dict, engineer_ids: set[int]) -> bool:
@@ -162,6 +163,15 @@ def hours_error(hours: float) -> str | None:
         return "Must be a number"
     if round(hours / HOURS_STEP) * HOURS_STEP != hours:
         return f"Must be in steps of {HOURS_STEP} hours (15 minutes)"
+    return None
+
+
+def day_total_error(logged_that_day: float, hours: float) -> str | None:
+    """Return why adding `hours` would take one engineer's day past DAY_HOURS_MAX across all tickets, or None."""
+    if logged_that_day + hours > DAY_HOURS_MAX:
+        left = max(DAY_HOURS_MAX - logged_that_day, 0)
+        return (f"You already have {logged_that_day:g} hours logged on this day across your tickets; "
+                f"the limit is {DAY_HOURS_MAX} a day, so at most {left:g} more")
     return None
 
 

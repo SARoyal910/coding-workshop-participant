@@ -37,6 +37,9 @@ LIST_SELECT = """
       JOIN users r ON r.id = i.reporter_id
 """
 
+WORK_LOG_LOCK = 1  # advisory lock namespace for lock_engineer_hours
+
+
 class PrimaryTaken(Exception):
     """Another engineer became primary at the same moment (the unique index rejected the change)."""
 
@@ -620,6 +623,24 @@ def add_work_log(incident_id: int, engineer_id: int, work_date, hours: float, de
         (incident_id, engineer_id, work_date, hours, description),
     )
     return row["id"]
+
+
+def lock_engineer_hours(engineer_id: int) -> None:
+    """
+    Serialize an engineer's work-log changes until the transaction ends, so two
+    entries saved at the same moment can't together pass the daily limit.
+    """
+    db.fetch_one("SELECT pg_advisory_xact_lock(%s, %s) AS locked", (WORK_LOG_LOCK, engineer_id))
+
+
+def hours_on_day(engineer_id: int, work_date, except_log_id: int | None = None) -> float:
+    """Hours an engineer has logged on one day across all tickets, optionally leaving one entry out."""
+    row = db.fetch_one(
+        "SELECT coalesce(sum(hours), 0) AS hours FROM incident_work_logs"
+        " WHERE engineer_id = %s AND work_date = %s AND (%s::int IS NULL OR id <> %s)",
+        (engineer_id, work_date, except_log_id, except_log_id),
+    )
+    return float(row["hours"])
 
 
 def update_work_log(log_id: int, work_date, hours: float, description: str) -> None:

@@ -25,7 +25,7 @@ route needs a Bearer token.
     POST /{id}/requests          -> 200 incident          reporter asks to reopen, with reason
     POST /{id}/requests/{request_id}/decision -> 200 incident  admin approves or rejects
     DELETE /{id}                 -> 204                   admin voids (soft delete), with reason (needs version)
-    POST /{id}/work-logs         -> 200 incident          engineer on the ticket logs time
+    POST /{id}/work-logs         -> 200 incident          engineer on the ticket logs time (max 12 h a day overall)
     PUT  /{id}/work-logs/{log_id} -> 200 incident         author only
 """
 

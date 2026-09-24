@@ -352,3 +352,19 @@ def test_everyone_can_view_a_site_alert(rules):
     """Another employee's ticket is hidden, unless it is a site alert."""
     assert rules.can_view(OTHER_EMPLOYEE, REPORTER_ID, ON_TICKET) is False
     assert rules.can_view(OTHER_EMPLOYEE, REPORTER_ID, ON_TICKET, site_alert=True) is True
+
+
+# ---------- daily labor limit across all tickets ----------
+
+@pytest.mark.parametrize(("logged", "hours", "ok"), [
+    (0, 12, True),       # a full day on one ticket
+    (8, 4, True),        # exactly the limit across tickets
+    (8, 4.25, False),    # a quarter hour over
+    (12, 0.25, False),   # day already full
+])
+def test_day_total_error(rules, logged, hours, ok):
+    """One engineer can log at most 12 hours on a day, across every ticket."""
+    error = rules.day_total_error(logged, hours)
+    assert (error is None) is ok
+    if not ok:
+        assert f"{logged:g} hours" in error and "limit is 12" in error

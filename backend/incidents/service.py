@@ -790,14 +790,27 @@ def _read_work_log(incident: dict, data: dict) -> tuple:
     return work_date, hours, description
 
 
+def _check_day_total(engineer_id: int, work_date, hours: float, except_log_id: int | None = None) -> None:
+    """
+    Inside the caller's transaction: lock this engineer's hours, then refuse an
+    entry that would take their day past rules.DAY_HOURS_MAX across all tickets.
+    The lock makes two simultaneous saves check one after the other.
+    """
+    repository.lock_engineer_hours(engineer_id)
+    error = rules.day_total_error(repository.hours_on_day(engineer_id, work_date, except_log_id), hours)
+    if error:
+        raise ValidationError("Validation failed", {"hours": error})
+
+
 def add_work_log(user: dict, incident_id: int, data: dict) -> dict:
     """
     Log time spent. Only engineers currently on the ticket may do this; logs
-    are locked once the ticket is archived.
+    are locked once the ticket is archived. An engineer's day can't pass
+    rules.DAY_HOURS_MAX across all their tickets.
 
     Raises:
         Forbidden: not an engineer on this ticket (13.4).
-        ValidationError: bad date, hours or description.
+        ValidationError: bad date, hours or description, or over the daily limit.
         Conflict: archived/voided.
     """
     incident, engineer_ids = _load_visible(user, incident_id)
@@ -807,6 +820,7 @@ def add_work_log(user: dict, incident_id: int, data: dict) -> dict:
     work_date, hours, description = _read_work_log(incident, data)
 
     with repository.transaction():
+        _check_day_total(user["id"], work_date, hours)
         repository.add_work_log(incident_id, user["id"], work_date, hours, description)
         repository.add_event(incident_id, user["id"], "work_logged", to_value=f"{hours:g} h on {work_date}")
     return get_incident(user, incident_id)
@@ -835,6 +849,7 @@ def edit_work_log(user: dict, incident_id: int, log_id: int, data: dict) -> dict
     new = f"{hours:g} h on {work_date}: {description}"
     if old != new:
         with repository.transaction():
+            _check_day_total(user["id"], work_date, hours, except_log_id=log_id)
             repository.update_work_log(log_id, work_date, hours, description)
             repository.add_event(incident_id, user["id"], "work_log_edited", old, new)
     return get_incident(user, incident_id)

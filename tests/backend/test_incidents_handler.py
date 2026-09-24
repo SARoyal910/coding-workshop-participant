@@ -707,3 +707,37 @@ def test_search_matches_the_incident_number(incidents, monkeypatch, q, number):
     assert status == 200 and seen["q"] == q.strip()
     stripped = seen["q"].lstrip("#").strip()
     assert (int(stripped) if stripped.isdecimal() else None) == number
+
+
+# ---------- 12-hour daily labor limit across tickets ----------
+
+WORK_LOG_PATH = f"/api/incidents/{INCIDENT_ID}/work-logs"
+
+
+@pytest.fixture
+def day_logged(incidents, monkeypatch):
+    """Fake the engineer's hours already logged that day (set .logged) and record the lock."""
+    incidents.logged = 0.0
+    monkeypatch.setattr(incidents.repository, "lock_engineer_hours", lambda engineer_id: incidents.writes.append("lock"))
+    monkeypatch.setattr(incidents.repository, "hours_on_day",
+                        lambda engineer_id, work_date, except_log_id=None: incidents.logged)
+    return incidents
+
+
+def test_work_log_over_the_daily_limit_is_400(day_logged):
+    """9 hours already logged elsewhere that day, so 4 more would make 13."""
+    day_logged.logged = 9.0
+    status, body = call(day_logged, "POST", WORK_LOG_PATH, ASSIGNED_ENGINEER,
+                        {"work_date": "2026-01-02", "hours": 4, "description": "Rewired the dock"})
+    assert status == 400
+    assert body["details"]["hours"].startswith("You already have 9 hours logged on this day")
+    assert "add_work_log" not in day_logged.writes
+
+
+def test_work_log_up_to_the_daily_limit_is_saved_under_the_lock(day_logged):
+    """8 + 4 is exactly 12: allowed, and the check ran under the engineer's lock."""
+    day_logged.logged = 8.0
+    status, _ = call(day_logged, "POST", WORK_LOG_PATH, ASSIGNED_ENGINEER,
+                     {"work_date": "2026-01-02", "hours": 4, "description": "Rewired the dock"})
+    assert status == 200
+    assert day_logged.writes.index("lock") < day_logged.writes.index("add_work_log")

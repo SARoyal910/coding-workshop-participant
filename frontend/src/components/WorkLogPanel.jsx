@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import PropTypes from 'prop-types';
 import Box from '@mui/material/Box';
+import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import MenuItem from '@mui/material/MenuItem';
 import Stack from '@mui/material/Stack';
@@ -81,7 +82,6 @@ function WorkLogForm({
           value={values.hours}
           onChange={set('hours')}
           error={Boolean(errors.hours)}
-          helperText={errors.hours}
           disabled={saving}
           sx={{ minWidth: 120 }}
         >
@@ -98,6 +98,14 @@ function WorkLogForm({
           slotProps={{ htmlInput: { maxLength: DESCRIPTION_MAX } }}
         />
       </Stack>
+      {/* Hours errors (such as the daily limit) are too long for the narrow Hours box. */}
+      {errors.hours ? (
+        <Alert severity="error" role="alert">{errors.hours}</Alert>
+      ) : (
+        <Typography variant="caption" color="text.secondary">
+          Up to 12 hours a day across all your tickets, in 15-minute steps.
+        </Typography>
+      )}
       <Stack direction="row" spacing={1}>
         <Button type="submit" variant="contained" size="small" disabled={saving}>{saving ? 'Saving…' : submitLabel}</Button>
         {onCancel && <Button size="small" onClick={onCancel} disabled={saving}>Cancel</Button>}
