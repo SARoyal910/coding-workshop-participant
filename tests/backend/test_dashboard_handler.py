@@ -47,6 +47,12 @@ def dashboard(load_service, monkeypatch):
         return [row for row in rows if engineer_id in (None, row["id"])]
 
     monkeypatch.setattr(repo, "status_counts", status_counts)
+
+    def incident_totals(user_id=None, engineer_id=None):
+        calls["incident_totals"] = {"user_id": user_id, "engineer_id": engineer_id}
+        return {"total": 9, "active": 5, "archived": 4, "voided": 1}
+
+    monkeypatch.setattr(repo, "incident_totals", incident_totals)
     monkeypatch.setattr(repo, "engineer_workload", engineer_workload)
     monkeypatch.setattr(repo, "issue_types", lambda days: [
         {"category": "IT", "issue_type": "Wi-Fi", "count": 5, "avg_hours": 1},
@@ -181,4 +187,18 @@ def test_employee_sees_only_their_own_tickets(dashboard):
     assert body == {
         "role": "employee",
         "status_counts": {"open": 4, "in_progress": 0, "blocked": 1, "resolved": 0, "closed": 0},
+        "totals": {"total": 9, "active": 5, "archived": 4, "voided": 1},
     }
+    assert dashboard.calls["incident_totals"] == {"user_id": 10, "engineer_id": None}
+
+
+@pytest.mark.parametrize(("user", "expected_filter"), [
+    (ADMIN, {"user_id": None, "engineer_id": None}),        # every incident
+    (ENGINEER, {"user_id": None, "engineer_id": 20}),       # tickets they worked on
+])
+def test_totals_are_scoped_to_the_role(dashboard, user, expected_filter):
+    """The total counts what each role is responsible for, including archived tickets."""
+    status, body = get_dashboard(dashboard, user)
+    assert status == 200
+    assert body["totals"] == {"total": 9, "active": 5, "archived": 4, "voided": 1}
+    assert dashboard.calls["incident_totals"] == expected_filter

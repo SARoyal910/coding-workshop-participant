@@ -207,6 +207,20 @@ function AdminDashboard({ data }) {
 
   return (
     <>
+      <Section title="All incidents" question="How many incidents have been reported in total?">
+        <TileRow tiles={[
+          {
+            label: 'Total reported', value: data.totals.total, caption: `${data.totals.active} active · ${data.totals.archived} archived`, to: '/incidents',
+          },
+          { label: 'Active', value: data.totals.active, caption: 'Open to closed, not yet archived', to: '/incidents' },
+          { label: 'Archived', value: data.totals.archived, caption: 'Finished and approved', to: '/incidents?archived=true' },
+          {
+            label: 'Voided', value: data.totals.voided, caption: 'Errors; not in the total', to: '/incidents?archived=true',
+          },
+        ]}
+        />
+      </Section>
+
       <Section title="Open incidents" question="What incidents are currently open, and what is their status?">
         <TileRow tiles={[
           { label: 'Open', value: counts.open, to: '/incidents?status=open' },
@@ -409,6 +423,9 @@ function EngineerDashboard({ data }) {
     <>
       <Section title="My tickets">
         <TileRow tiles={[
+          {
+            label: 'All my tickets', value: data.totals.total, caption: `${data.totals.active} active · ${data.totals.archived} archived`, to: '/incidents?scope=mine',
+          },
           { label: 'In progress', value: counts.in_progress, to: '/incidents?scope=mine&status=in_progress' },
           {
             label: 'Blocked', value: counts.blocked, to: '/incidents?scope=mine&status=blocked', tone: counts.blocked ? 'error.main' : undefined,
@@ -445,8 +462,8 @@ EngineerDashboard.propTypes = {
  */
 function EmployeeDashboard({ data }) {
   const counts = data.status_counts;
-  const total = Object.values(counts).reduce((sum, count) => sum + count, 0);
-  if (!total) {
+  // Count archived tickets too: someone whose tickets are all finished has still reported something.
+  if (!data.totals.total) {
     return (
       <EmptyState
         title="You haven't reported anything yet"
@@ -459,6 +476,9 @@ function EmployeeDashboard({ data }) {
     <>
       <Section title="My reported incidents">
         <TileRow tiles={[
+          {
+            label: 'Total reported', value: data.totals.total, caption: `${data.totals.archived} finished and archived`, to: '/incidents',
+          },
           { label: 'Open', value: counts.open, to: '/incidents?status=open' },
           { label: 'In progress', value: counts.in_progress, to: '/incidents?status=in_progress' },
           { label: 'Blocked', value: counts.blocked, to: '/incidents?status=blocked' },

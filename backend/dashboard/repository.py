@@ -27,6 +27,25 @@ def status_counts(user_id: int | None = None, engineer_id: int | None = None) ->
     )
 
 
+def incident_totals(user_id: int | None = None, engineer_id: int | None = None) -> dict:
+    """
+    Every incident ever reported, in one pass: total (not voided), split into
+    active and archived, plus voided separately (errors, so not in the total).
+    Optionally only one reporter's or one engineer's.
+    """
+    return db.fetch_one(
+        "SELECT count(*) FILTER (WHERE NOT i.is_voided) AS total,"
+        "       count(*) FILTER (WHERE NOT i.is_voided AND NOT i.is_archived) AS active,"
+        "       count(*) FILTER (WHERE NOT i.is_voided AND i.is_archived) AS archived,"
+        "       count(*) FILTER (WHERE i.is_voided) AS voided"
+        "  FROM incidents i"
+        " WHERE (%(user_id)s::int IS NULL OR i.reporter_id = %(user_id)s)"
+        "   AND (%(engineer_id)s::int IS NULL OR EXISTS (SELECT 1 FROM incident_engineers ie"
+        "        WHERE ie.incident_id = i.id AND ie.engineer_id = %(engineer_id)s))",
+        {"user_id": user_id, "engineer_id": engineer_id},
+    )
+
+
 def response_times(days: int) -> dict:
     """Average hours from report to acknowledge / assign / resolve, for incidents reported in the window."""
     return db.fetch_one(

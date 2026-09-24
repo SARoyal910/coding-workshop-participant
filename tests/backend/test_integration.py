@@ -473,12 +473,24 @@ def test_dashboards_match_the_rows_they_summarize(handlers):
     assert sum(row["count"] for row in admin["categories"]) == sum(row["count"] for row in admin["issue_types"])
     for pct in (admin["communication"]["resolved_with_note_pct"], admin["communication"]["reopen_rate_pct"]):
         assert pct is None or 0 <= pct <= 100
+    # Totals: every incident, counted straight from the table; active matches the status tiles.
+    counts = db.fetch_one(
+        "SELECT count(*) FILTER (WHERE NOT is_voided) AS total,"
+        "       count(*) FILTER (WHERE NOT is_voided AND is_archived) AS archived,"
+        "       count(*) FILTER (WHERE is_voided) AS voided FROM incidents")
+    totals = admin["totals"]
+    assert (totals["total"], totals["archived"], totals["voided"]) == (counts["total"], counts["archived"], counts["voided"])
+    assert totals["active"] == sum(admin["status_counts"].values())
+    assert totals["total"] == totals["active"] + totals["archived"]
 
     employee = db.fetch_one("SELECT id FROM users WHERE email = 'dana.whitfield@acme.inc'")["id"]
     status, mine = call(dashboard, "GET", "/api/dashboard", token=login(handlers, "dana.whitfield@acme.inc", TEST_SEED_PASSWORD))
     assert status == 200, mine
     assert sum(mine["status_counts"].values()) == db.fetch_one(
         f"SELECT count(*) AS n {active} AND reporter_id = %s", (employee,))["n"]  # nosec B608
+    assert mine["totals"]["total"] == db.fetch_one(
+        "SELECT count(*) AS n FROM incidents WHERE NOT is_voided AND reporter_id = %s", (employee,))["n"]
+    assert mine["totals"]["active"] == sum(mine["status_counts"].values())
 
     engineer = db.fetch_one("SELECT u.id, u.email FROM users u JOIN engineer_profiles p ON p.user_id = u.id"
                             " ORDER BY u.id LIMIT 1")

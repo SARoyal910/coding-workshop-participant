@@ -69,6 +69,7 @@ def admin_dashboard() -> dict:
         "window_days": METRICS_WINDOW_DAYS,
         # 1. What is open, and what is its status?
         "status_counts": _status_counts(repository.status_counts()),
+        "totals": repository.incident_totals(),
         # 2. Where do issues keep coming back?
         "recurring": {
             "threshold": RECURRING_THRESHOLD,
@@ -114,6 +115,7 @@ def engineer_dashboard(user: dict) -> dict:
         "role": "engineer",
         "window_days": METRICS_WINDOW_DAYS,
         "status_counts": _status_counts(repository.status_counts(engineer_id=user["id"])),
+        "totals": repository.incident_totals(engineer_id=user["id"]),
         "unassigned_pool": repository.unassigned_pool_count(),
         "me": workload[0] if workload else None,
     }
@@ -124,6 +126,7 @@ def employee_dashboard(user: dict) -> dict:
     return {
         "role": "employee",
         "status_counts": _status_counts(repository.status_counts(user_id=user["id"])),
+        "totals": repository.incident_totals(user_id=user["id"]),
     }
 
 
