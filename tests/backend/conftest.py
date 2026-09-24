@@ -16,7 +16,7 @@ from typing import Callable, Iterator
 
 import pytest
 
-from helpers import BACKEND_DIR, TEST_JWT_SECRET
+from helpers import ACCOUNTS, BACKEND_DIR, TEST_JWT_SECRET
 
 # "_shared" is a package directly under backend/; make it importable everywhere.
 if str(BACKEND_DIR) not in sys.path:
@@ -50,6 +50,11 @@ def no_database(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch)
         raise RuntimeError("unit test tried to open a database connection; fake the repository function")
 
     monkeypatch.setattr(db, "_connect", refuse)
+    # require_user reads the caller's current role from the users table; answer
+    # from the accounts the test created tokens for instead.
+    from _shared import auth
+
+    monkeypatch.setattr(auth, "lookup_account", ACCOUNTS.get)
 
 
 def _forget_service_modules() -> None:

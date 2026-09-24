@@ -25,6 +25,7 @@ import ListAltOutlinedIcon from '@mui/icons-material/ListAltOutlined';
 import LogoutIcon from '@mui/icons-material/Logout';
 import MenuIcon from '@mui/icons-material/Menu';
 import MenuOpenIcon from '@mui/icons-material/MenuOpen';
+import PeopleOutlinedIcon from '@mui/icons-material/PeopleOutlined';
 import useAuth from '../hooks/useAuth';
 import { ROLE_LABELS } from '../constants';
 import ErrorBoundary from './ErrorBoundary';
@@ -51,6 +52,7 @@ const NAV_ITEMS = [
   { to: '/approvals', label: 'Approvals', icon: <FactCheckOutlinedIcon />, roles: ['admin'] },
   { to: '/engineers', label: 'Engineers', icon: <EngineeringOutlinedIcon />, roles: ['admin', 'engineer'] },
   { to: '/facilities', label: 'Facilities', icon: <ApartmentOutlinedIcon />, roles: ['admin'] },
+  { to: '/people', label: 'People', icon: <PeopleOutlinedIcon />, roles: ['admin'] },
 ];
 
 /**

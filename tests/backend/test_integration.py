@@ -536,6 +536,45 @@ def test_admin_reassigns_the_primary_engineer(handlers):
     assert (event["from_value"], event["to_value"]) == ("Priya Nair", "Jordan Lee")
 
 
+def test_admin_changes_roles_and_they_apply_immediately(handlers):
+    """
+    Promote an employee to engineer and an engineer to admin, then revoke it.
+    Each change applies to the person's existing token, without logging in again.
+    """
+    auth, incidents = handlers["auth"], handlers["incidents"]
+    admin_token = login(handlers, "admin@acme.inc", TEST_SEED_PASSWORD)
+    status, body = call(auth, "POST", "/api/auth/register",
+                        {"name": "Casey Promoted", "email": "casey.int@acme.inc", "password": "a-long-password"})
+    assert status == 201, body
+    casey_token, casey_id = body["token"], body["user"]["id"]
+    priya_token = login(handlers, "priya.nair@acme.inc", TEST_SEED_PASSWORD)
+    status, people = call(auth, "GET", "/api/auth/users", token=admin_token)
+    assert status == 200 and people["total"] >= 3
+    priya_id = next(p["id"] for p in people["items"] if p["email"] == "priya.nair@acme.inc")
+
+    # Employee -> engineer: needs a specialty and shift; Casey's old token can now join tickets.
+    status, casey = call(auth, "PUT", f"/api/auth/users/{casey_id}/role",
+                         {"role": "engineer", "specialty": "AV", "shift": "swing"}, admin_token)
+    assert (status, casey["role"], casey["specialty"]) == (200, "engineer", "AV"), casey
+    _, pool = call(incidents, "GET", "/api/incidents", token=admin_token)
+    ticket_id = pool["items"][0]["id"]
+    assert call(incidents, "POST", f"/api/incidents/{ticket_id}/join", token=casey_token)[0] == 200
+
+    # Engineer -> admin (covering a vacation): Priya's old token opens the approvals queue.
+    assert call(incidents, "GET", "/api/incidents/requests", token=priya_token)[0] == 403
+    assert call(auth, "PUT", f"/api/auth/users/{priya_id}/role", {"role": "admin"}, admin_token)[0] == 200
+    assert call(incidents, "GET", "/api/incidents/requests", token=priya_token)[0] == 200
+
+    # Revoked: back to engineer with her old specialty, and the queue is closed again.
+    status, priya = call(auth, "PUT", f"/api/auth/users/{priya_id}/role", {"role": "engineer"}, admin_token)
+    assert (status, priya["role"], priya["specialty"]) == (200, "engineer", "IT"), priya
+    assert call(incidents, "GET", "/api/incidents/requests", token=priya_token)[0] == 403
+
+    # Nobody changes their own role.
+    admin_id = next(p["id"] for p in people["items"] if p["email"] == "admin@acme.inc")
+    assert call(auth, "PUT", f"/api/auth/users/{admin_id}/role", {"role": "employee"}, admin_token)[0] == 409
+
+
 def test_critical_incident_is_a_site_alert(handlers):
     """
     Only an admin may report critical; while it is active every role sees it

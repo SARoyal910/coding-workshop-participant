@@ -1,4 +1,4 @@
-import { Suspense, lazy } from 'react';
+import { Suspense } from 'react';
 import { Link as RouterLink, Route, Routes } from 'react-router-dom';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -8,16 +8,19 @@ import { LoadingState } from './components/PageState';
 import RequireAuth from './components/RequireAuth';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
+import lazyWithReload from './lazyWithReload';
 
 // Pages behind login are loaded on demand, so the login screen doesn't download
-// the charts library and every page at once.
-const ApprovalsPage = lazy(() => import('./pages/ApprovalsPage'));
-const DashboardPage = lazy(() => import('./pages/DashboardPage'));
-const EngineersPage = lazy(() => import('./pages/EngineersPage'));
-const FacilitiesPage = lazy(() => import('./pages/FacilitiesPage'));
-const IncidentDetailPage = lazy(() => import('./pages/IncidentDetailPage'));
-const IncidentFormPage = lazy(() => import('./pages/IncidentFormPage'));
-const IncidentListPage = lazy(() => import('./pages/IncidentListPage'));
+// the charts library and every page at once. lazyWithReload recovers tabs that
+// were open across a deploy.
+const ApprovalsPage = lazyWithReload(() => import('./pages/ApprovalsPage'));
+const DashboardPage = lazyWithReload(() => import('./pages/DashboardPage'));
+const EngineersPage = lazyWithReload(() => import('./pages/EngineersPage'));
+const FacilitiesPage = lazyWithReload(() => import('./pages/FacilitiesPage'));
+const IncidentDetailPage = lazyWithReload(() => import('./pages/IncidentDetailPage'));
+const IncidentFormPage = lazyWithReload(() => import('./pages/IncidentFormPage'));
+const IncidentListPage = lazyWithReload(() => import('./pages/IncidentListPage'));
+const PeoplePage = lazyWithReload(() => import('./pages/PeoplePage'));
 
 /**
  * Wrap a lazily loaded page with a loading fallback.
@@ -59,6 +62,7 @@ export default function App() {
         <Route path="approvals" element={<RequireAuth roles={['admin']}>{lazyPage(ApprovalsPage)}</RequireAuth>} />
         <Route path="engineers" element={<RequireAuth roles={['admin', 'engineer']}>{lazyPage(EngineersPage)}</RequireAuth>} />
         <Route path="facilities" element={<RequireAuth roles={['admin']}>{lazyPage(FacilitiesPage)}</RequireAuth>} />
+        <Route path="people" element={<RequireAuth roles={['admin']}>{lazyPage(PeoplePage)}</RequireAuth>} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>

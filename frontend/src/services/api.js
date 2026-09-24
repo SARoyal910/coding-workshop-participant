@@ -142,6 +142,11 @@ export const facilitiesApi = {
   deleteSeat: (id) => request('DELETE', `/facilities/seats/${id}`),
 };
 
+export const peopleApi = {
+  list: (query) => request('GET', '/auth/users', { query }),
+  changeRole: (id, fields) => request('PUT', `/auth/users/${id}/role`, { body: fields }),
+};
+
 export const engineersApi = {
   list: (query) => request('GET', '/engineers', { query }),
   create: (fields) => request('POST', '/engineers', { body: fields }),

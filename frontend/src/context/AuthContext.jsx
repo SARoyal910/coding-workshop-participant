@@ -1,5 +1,5 @@
 import {
-  useCallback, useEffect, useMemo, useState,
+  useCallback, useEffect, useMemo, useRef, useState,
 } from 'react';
 import PropTypes from 'prop-types';
 import { AuthContext } from './contexts';
@@ -9,6 +9,7 @@ import {
 
 const STORAGE_KEY = 'acme.session';
 const REFRESH_BEFORE_MS = 30 * 60 * 1000; // Refresh when less than 30 minutes remain (13.6).
+const ROLE_CHECK_MS = 60 * 1000; // Check for a role change at most once a minute.
 
 
 /**
@@ -98,6 +99,30 @@ export function AuthProvider({ children }) {
       }
     }, delay);
     return () => clearTimeout(timer);
+  }, [session, saveSession]);
+
+  // Roles can change while someone is logged in (an admin promotes them, or
+  // takes admin rights back). The server applies it at once; refresh the
+  // session when the window regains focus so the menu and pages match.
+  const lastRoleCheck = useRef(0);
+  useEffect(() => {
+    if (!session?.token) return undefined;
+    const check = async () => {
+      if (document.visibilityState !== 'visible' || Date.now() - lastRoleCheck.current < ROLE_CHECK_MS) return;
+      lastRoleCheck.current = Date.now();
+      try {
+        const fresh = await authApi.refresh();
+        if (fresh.user.role !== session.user.role) saveSession(fresh);
+      } catch {
+        // A 401 here is handled by the unauthorized handler.
+      }
+    };
+    window.addEventListener('focus', check);
+    document.addEventListener('visibilitychange', check);
+    return () => {
+      window.removeEventListener('focus', check);
+      document.removeEventListener('visibilitychange', check);
+    };
   }, [session, saveSession]);
 
   const value = useMemo(() => ({

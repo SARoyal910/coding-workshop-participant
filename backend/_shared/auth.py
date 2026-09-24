@@ -1,8 +1,10 @@
 """
 Password hashing (bcrypt) and JSON Web Tokens (PyJWT).
 
-A token carries the user's id and role, so services can check permissions
-without a database lookup on every request.
+A token proves who the caller is. Their role, name and email are read from
+the database on every request, so a role change (for example an admin's
+rights being revoked after a vacation) takes effect immediately rather than
+when the 8-hour token expires.
 """
 
 import os
@@ -56,6 +58,13 @@ def create_token(user: dict) -> str:
     return jwt.encode(claims, _secret(), algorithm=TOKEN_ALGORITHM)
 
 
+def lookup_account(user_id: int) -> dict | None:
+    """Return the user's current role, name and email, or None if the account no longer exists."""
+    from _shared import db  # imported here: db -> seed -> auth would otherwise be circular
+
+    return db.fetch_one("SELECT role, name, email FROM users WHERE id = %s", (user_id,))
+
+
 def require_user(event: dict, roles: tuple[str, ...] | None = None) -> dict:
     """
     Read and verify the Bearer token on a request.
@@ -69,7 +78,7 @@ def require_user(event: dict, roles: tuple[str, ...] | None = None) -> dict:
         A dict with the caller's "id" (int), "role", "name" and "email".
 
     Raises:
-        Unauthorized: the token is missing, invalid or expired.
+        Unauthorized: the token is missing, invalid or expired, or the account is gone.
         Forbidden: the user's role is not allowed.
     """
     scheme, _, token = get_header(event, "authorization").partition(" ")
@@ -83,13 +92,13 @@ def require_user(event: dict, roles: tuple[str, ...] | None = None) -> dict:
     except jwt.InvalidTokenError as exc:
         raise Unauthorized("Invalid token") from exc
 
-    user = {
-        "id": int(claims["sub"]),
-        "role": claims["role"],
-        "name": claims["name"],
-        "email": claims["email"],
-    }
-    event["user_id"] = user["id"]
+    user_id = int(claims["sub"])
+    event["user_id"] = user_id
+    # The token's role may be out of date; the database is the source of truth.
+    account = lookup_account(user_id)
+    if account is None:
+        raise Unauthorized("Your account no longer exists")
+    user = {"id": user_id, "role": account["role"], "name": account["name"], "email": account["email"]}
     if roles and user["role"] not in roles:
         raise Forbidden("You don't have permission to do this")
     return user

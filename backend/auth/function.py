@@ -6,6 +6,8 @@ Auth service routing. Paths are relative to /api/auth:
     GET  /me       -> 200 {user}         requires a Bearer token
     POST /refresh  -> 200 {token, user}  requires a still-valid Bearer token
     GET  /health   -> 200 or 503         checks the database
+    GET  /users    -> 200 {items, total, page, page_size}  admin: everyone, ?role= &q= &page= &page_size=
+    PUT  /users/{id}/role -> 200 person  admin: {role, specialty?, shift?}; applies on the next request
 """
 
 import logging
@@ -13,36 +15,56 @@ from typing import Any
 
 import service
 from _shared.auth import require_user
-from _shared.http import api_handler, get_method, json_response, match_route, parse_json_body, parse_path
+from _shared.http import (
+    api_handler,
+    get_method,
+    get_query_params,
+    json_response,
+    match_route,
+    parse_json_body,
+    parse_path,
+)
 
 logging.getLogger().setLevel(logging.INFO)
 
 SERVICE = "auth"
 
 
-def register(event: dict) -> dict:
+def register(event: dict, params: dict) -> dict:
     """POST /register"""
     return json_response(201, service.register(parse_json_body(event)))
 
 
-def login(event: dict) -> dict:
+def login(event: dict, params: dict) -> dict:
     """POST /login"""
     return json_response(200, service.login(parse_json_body(event)))
 
 
-def me(event: dict) -> dict:
+def me(event: dict, params: dict) -> dict:
     """GET /me"""
     caller = require_user(event)
     return json_response(200, {"user": service.current_user(caller["id"])})
 
 
-def refresh(event: dict) -> dict:
+def refresh(event: dict, params: dict) -> dict:
     """POST /refresh"""
     caller = require_user(event)
     return json_response(200, service.refresh(caller["id"]))
 
 
-def health(event: dict) -> dict:
+def list_people(event: dict, params: dict) -> dict:
+    """GET /users"""
+    caller = require_user(event)
+    return json_response(200, service.list_people(caller, get_query_params(event)))
+
+
+def change_role(event: dict, params: dict) -> dict:
+    """PUT /users/{id}/role"""
+    caller = require_user(event)
+    return json_response(200, service.change_role(caller, params["id"], parse_json_body(event)))
+
+
+def health(event: dict, params: dict) -> dict:
     """GET /health"""
     if service.is_healthy():
         return json_response(200, {"status": "ok"})
@@ -55,11 +77,13 @@ ROUTES = [
     ("GET", "/me", me),
     ("POST", "/refresh", refresh),
     ("GET", "/health", health),
+    ("GET", "/users", list_people),
+    ("PUT", "/users/{id}/role", change_role),
 ]
 
 
 @api_handler
 def handler(event: dict, context: Any = None) -> dict:
     """Lambda entry point: find the route for this method and path and run it."""
-    route, _ = match_route(ROUTES, get_method(event), parse_path(event, SERVICE))
-    return route(event)
+    route, params = match_route(ROUTES, get_method(event), parse_path(event, SERVICE))
+    return route(event, params)

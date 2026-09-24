@@ -37,10 +37,16 @@ def make_event(method: str, path: str, body: dict | str | None = None, token: st
     }
 
 
+# Accounts that unit tests have created tokens for, so the faked
+# _shared.auth.lookup_account (see conftest.py) can answer like the users table.
+ACCOUNTS: dict[int, dict] = {}
+
+
 def token_for(user: dict) -> str:
-    """Create a valid token for a user dict with id, role, name and email."""
+    """Create a valid token for a user dict with id, role, name and email, and register the account."""
     from _shared.auth import create_token  # imported late so JWT_SECRET is already patched
 
+    ACCOUNTS[user["id"]] = {"role": user["role"], "name": user["name"], "email": user["email"]}
     return create_token(user)
 
 

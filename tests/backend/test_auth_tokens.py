@@ -10,7 +10,17 @@ import pytest
 from _shared import auth
 from _shared.errors import Forbidden, Unauthorized
 
+from helpers import ACCOUNTS
+
 USER = {"id": 7, "role": "engineer", "name": "Priya Nair", "email": "priya.nair@acme.inc"}
+
+
+@pytest.fixture(autouse=True)
+def user_account():
+    """USER exists in the (faked) users table with the same details as the token."""
+    ACCOUNTS[USER["id"]] = {"role": USER["role"], "name": USER["name"], "email": USER["email"]}
+    yield
+    ACCOUNTS.pop(USER["id"], None)
 
 
 def bearer(token: str) -> dict:
@@ -90,3 +100,21 @@ def test_missing_secret_fails_loudly(monkeypatch):
     monkeypatch.delenv("JWT_SECRET")
     with pytest.raises(RuntimeError, match="JWT_SECRET"):
         auth.create_token(USER)
+
+
+def test_role_comes_from_the_database_not_the_token():
+    """A promotion or demotion applies at once, even to a token issued before it."""
+    token = auth.create_token(USER)  # issued while an engineer
+    ACCOUNTS[USER["id"]] = {"role": "admin", "name": USER["name"], "email": USER["email"]}
+    assert auth.require_user(bearer(token), roles=("admin",))["role"] == "admin"
+    ACCOUNTS[USER["id"]] = {"role": "employee", "name": USER["name"], "email": USER["email"]}
+    with pytest.raises(Forbidden):
+        auth.require_user(bearer(token), roles=("engineer", "admin"))
+
+
+def test_token_for_a_missing_account_is_401():
+    """A valid token for an account that no longer exists is rejected."""
+    token = auth.create_token(USER)
+    ACCOUNTS.pop(USER["id"])
+    with pytest.raises(Unauthorized):
+        auth.require_user(bearer(token))

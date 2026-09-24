@@ -25,6 +25,8 @@
 
 ## 3. Roles
 - employee: self-registers. admin: seeded. engineer: created by admin. "Supervisor" = admin.
+- People page (admin): lists every account and changes roles through `PUT /api/auth/users/{id}/role`. Employee -> engineer needs a specialty and shift; engineer -> admin covers an admin on vacation and can be taken back. The engineer profile is kept, so going back to engineer restores it. An admin can't change their own role (so one admin always remains), and nobody becomes an employee while primary on active tickets.
+- Roles apply immediately: the token proves identity, but `require_user` reads the role from `users` on every request, so a promotion or a revoked admin takes effect on the next click, not when the 8-hour token expires. The frontend refreshes the session when the window regains focus so the menu matches.
 
 ## 4. Data model (13 tables)
 ```
