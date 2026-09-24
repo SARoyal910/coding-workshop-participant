@@ -260,15 +260,17 @@ export default function IncidentListPage() {
     if (scope) query.scope = scope;
     return incidentsApi.list(query);
   }, [queryString, scope]);
+  // Bulk priority/void send each ticket's version; pause the background refresh while
+  // their dialog is open so a refresh can't swap in newer versions (see IncidentDetailPage).
+  const [bulkDialog, setBulkDialog] = useState(null);
   const {
     data, error, loading, reload,
-  } = useApiData(loader, { refreshMs: REFRESH_MS });
+  } = useApiData(loader, { refreshMs: bulkDialog ? 0 : REFRESH_MS });
 
   // Bulk actions: engineers take or join tickets, admins change priority or void.
   // Selected ids that are no longer on the page are ignored.
   const canBulk = !isMobile && (isEngineer || user.role === 'admin') && params.get('archived') !== 'true';
   const [selectedIds, setSelectedIds] = useState(() => new Set());
-  const [bulkDialog, setBulkDialog] = useState(null);
   const [bulkSaving, setBulkSaving] = useState(false);
   const items = data?.items || [];
   const selected = items.filter((incident) => selectedIds.has(incident.id));

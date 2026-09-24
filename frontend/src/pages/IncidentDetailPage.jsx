@@ -68,16 +68,20 @@ export default function IncidentDetailPage() {
   const { id } = useParams();
   const { user } = useAuth();
   const { notify } = useNotify();
-  const loader = useCallback(() => incidentsApi.get(id), [id]);
-  const {
-    data: incident, error, loading, reload, setData,
-  } = useApiData(loader, { refreshMs: REFRESH_MS });
   const [tab, setTab] = useState('notes');
   const [target, setTarget] = useState(null);
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(null);
-  // Which action dialog is open: 'priority' | 'reopen' | 'void' | 'decide', and the request being decided.
+  // Which action dialog is open: 'priority' | 'reopen' | 'void' | 'decide' | 'assign', and the request being decided.
   const [dialog, setDialog] = useState(null);
+  const loader = useCallback(() => incidentsApi.get(id), [id]);
+  // Pause the background refresh while the user is changing the ticket. A refresh
+  // would load the newer version, so a save would silently overwrite someone
+  // else's change instead of getting the 409 that optimistic locking relies on.
+  const changing = Boolean(editing || dialog || target);
+  const {
+    data: incident, error, loading, reload, setData,
+  } = useApiData(loader, { refreshMs: changing ? 0 : REFRESH_MS });
   const [decision, setDecision] = useState(null);
   // Ranked engineer choices for the admin's Assign dialog, loaded when it opens.
   const [assignChoices, setAssignChoices] = useState([]);
