@@ -44,7 +44,7 @@ incident_requests(id, incident_id, type reopen|close_approval, reason, status pe
 incident_notes(id, incident_id, author_id, body, created_at, edited_at)
 incident_work_logs(id, incident_id, engineer_id, work_date, hours, description, created_at, edited_at)
 incident_seats(incident_id, seat_id)  -- every seat of a report covering several seats; incidents.seat_id is the first
-incident_events(id, incident_id, actor_id, type, from_value, to_value, reason, created_at)  -- audit log for EVERY change
+incident_events(id, incident_id, actor_id, type, from_value, to_value, reason, created_at, subject_id NULL)  -- audit log for EVERY change; subject_id = who the event is about (e.g. the engineer taken off by a reassignment), added later with ALTER TABLE ... ADD COLUMN IF NOT EXISTS
 ```
 
 ### Entity relationship diagram
@@ -174,6 +174,8 @@ Nothing is hard-deleted. Admin can void an erroneous incident (reason) -> it mov
 ## 6. Business rules
 - Priority: anyone reports low to high; only an admin can report critical (critical is shown site-wide) or change the priority later. Changes always log a priority_changed event (old, new, reason).
 - Join: any engineer can join a non-archived ticket. If nobody has taken it, the engineer becomes primary ("Take this ticket"); if it is already taken, they join as a helper ("Join as helper"). The role is decided inside the INSERT and a partial unique index allows one primary per ticket, so two engineers taking it at the same moment give one primary and one helper. Logged. "Helped others" = count of helper rows.
+- Engineer history (admin): clicking an engineer lists every ticket they are on (primary or helper) plus the ones they were reassigned off, found by `incident_events.subject_id`, not by name.
+- Search: the incident search matches title and description, and a number (`42` or `#42`) also matches the incident id.
 - Assign / reassign: an admin makes an available engineer primary on an active ticket (`POST /api/incidents/{id}/assign`). The previous primary comes off the ticket, helpers stay, and an engineer_reassigned event records old -> new. The dialog suggests engineers by matching specialty, on shift now, then fewest active tickets. Fixes the dashboard's "needs reassignment" flag in the app.
 - Acknowledge: engineer commits to handling it this shift. shift_ends_at computed from engineer shift (day 07-15, swing 15-23, night 23-07). Sets incidents.acknowledged_at on first ack.
 - Missed shift commitment = shift_ends_at < now AND not resolved by shift_ends_at AND not moved to blocked (with reason) before shift_ends_at. Computed at query time.

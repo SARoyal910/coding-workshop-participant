@@ -524,6 +524,8 @@ def test_report_covering_several_seats(handlers):
 
 def test_admin_reassigns_the_primary_engineer(handlers):
     """The old primary comes off the ticket, a helper can be promoted, and the change is logged."""
+    from _shared import db
+
     incidents = handlers["incidents"]
     reporter_token = login(handlers, "dana.whitfield@acme.inc", TEST_SEED_PASSWORD)
     priya_token = login(handlers, "priya.nair@acme.inc", TEST_SEED_PASSWORD)
@@ -546,6 +548,24 @@ def test_admin_reassigns_the_primary_engineer(handlers):
     assert [(e["name"], e["role"]) for e in ticket["engineers"]] == [("Jordan Lee", "primary")]
     event = next(e for e in ticket["events"] if e["type"] == "engineer_reassigned")
     assert (event["from_value"], event["to_value"]) == ("Priya Nair", "Jordan Lee")
+
+    # Priya's history still includes the ticket she was taken off, labeled as such.
+    priya_id = db.fetch_one("SELECT id FROM users WHERE email = 'priya.nair@acme.inc'")["id"]
+    response = incidents(make_event("GET", "/api/incidents", token=admin_token,
+                                    query={"engineer_id": str(priya_id), "page_size": "100"}))
+    roles = {item["id"]: item["engineer_role"] for item in response_json(response)["items"]}
+    assert roles[ticket["id"]] == "reassigned"
+
+    # Reassignments logged before subject_id existed are backfilled by exact, unique name.
+    # Re-running the whole schema is safe (ADD COLUMN IF NOT EXISTS, backfill only fills gaps).
+    from _shared.schema import SCHEMA_SQL
+    old = db.fetch_one(
+        "INSERT INTO incident_events (incident_id, actor_id, type, from_value, to_value)"
+        " SELECT %s, id, 'engineer_reassigned', 'Tom Becker', 'Jordan Lee' FROM users WHERE email = 'admin@acme.inc'"
+        " RETURNING id", (ticket["id"],))
+    db.get_connection().execute(SCHEMA_SQL)
+    tom_id = db.fetch_one("SELECT id FROM users WHERE email = 'tom.becker@acme.inc'")["id"]
+    assert db.fetch_one("SELECT subject_id FROM incident_events WHERE id = %s", (old["id"],))["subject_id"] == tom_id
 
 
 def test_admin_changes_roles_and_they_apply_immediately(handlers):
@@ -589,16 +609,21 @@ def test_admin_changes_roles_and_they_apply_immediately(handlers):
 
 def test_admin_sees_every_ticket_an_engineer_is_on(handlers):
     """
-    The engineer filter returns exactly the engineer's tickets, with their role: active ones,
-    and in the archive view the archived and voided ones (voided tickets live in the archive).
+    The engineer filter returns exactly the engineer's tickets, with their role: the ones
+    they are on and the ones they were reassigned off; the archive view adds archived and
+    voided ones (voided tickets live in the archive).
     """
     from _shared import db
 
     incidents = handlers["incidents"]
     admin_token = login(handlers, "admin@acme.inc", TEST_SEED_PASSWORD)
     priya = db.fetch_one("SELECT id FROM users WHERE email = 'priya.nair@acme.inc'")["id"]
-    expected = {row["incident_id"]: row["role"] for row in db.fetch_all(
-        "SELECT incident_id, role FROM incident_engineers WHERE engineer_id = %s", (priya,))}
+    # Tickets she was reassigned off (audit log), then her current tickets, which win if she is back on one.
+    expected = {row["incident_id"]: "reassigned" for row in db.fetch_all(
+        "SELECT DISTINCT incident_id FROM incident_events"
+        " WHERE type = 'engineer_reassigned' AND subject_id = %s", (priya,))}
+    expected.update({row["incident_id"]: row["role"] for row in db.fetch_all(
+        "SELECT incident_id, role FROM incident_engineers WHERE engineer_id = %s", (priya,))})
 
     seen = {}
     for archived in ("false", "true"):
@@ -609,6 +634,22 @@ def test_admin_sees_every_ticket_an_engineer_is_on(handlers):
         assert body["engineer"]["name"] == "Priya Nair"
         seen.update({item["id"]: item["engineer_role"] for item in body["items"]})
     assert seen == expected
+
+
+def test_search_finds_an_incident_by_number(handlers):
+    """Typing 42 or #42 in search finds incident 42, and text still matches titles."""
+    incidents = handlers["incidents"]
+    admin_token = login(handlers, "admin@acme.inc", TEST_SEED_PASSWORD)
+
+    def search(q: str) -> list[int]:
+        response = incidents(make_event("GET", "/api/incidents", token=admin_token, query={"q": q, "page_size": "100"}))
+        assert response["statusCode"] == 200
+        return [item["id"] for item in response_json(response)["items"]]
+
+    some = search("")[0]
+    assert some in search(str(some))
+    assert some in search(f"#{some}")
+    assert search("zzzz-no-such-ticket") == []
 
 
 def test_critical_incident_is_a_site_alert(handlers):

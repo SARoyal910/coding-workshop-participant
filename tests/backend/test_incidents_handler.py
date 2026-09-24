@@ -590,7 +590,7 @@ def assignable(incidents, monkeypatch):
 
     monkeypatch.setattr(repo, "set_primary", set_primary)
     events = []
-    monkeypatch.setattr(repo, "add_event", lambda *args, **kwargs: events.append(args))
+    monkeypatch.setattr(repo, "add_event", lambda *args, **kwargs: events.append((*args, kwargs.get("subject_id"))))
     incidents.events = events
     return incidents
 
@@ -625,7 +625,8 @@ def test_reassign_logs_old_and_new_engineer(assignable):
     status, _ = call(assignable, "POST", ASSIGN_PATH, ADMIN, {"engineer_id": 21})
     assert status == 200
     assert ("set_primary", 21) in assignable.writes
-    assert (INCIDENT_ID, ADMIN["id"], "engineer_reassigned", "Priya Nair", "Tom Becker") in assignable.events
+    # subject_id records who was taken off by id, so their history doesn't depend on names.
+    assert (INCIDENT_ID, ADMIN["id"], "engineer_reassigned", "Priya Nair", "Tom Becker", 20) in assignable.events
 
 
 def test_assigning_current_primary_changes_nothing(assignable, monkeypatch):
@@ -688,3 +689,21 @@ def test_filter_by_engineer_names_them_and_gives_their_role(incidents, monkeypat
     assert status == 200
     assert body["engineer"] == {"id": 20, "name": "Priya Nair"}
     assert [(i["id"], i["engineer_role"]) for i in body["items"]] == [(5, "primary"), (6, "helper")]
+
+
+# ---------- search by incident number ----------
+
+@pytest.mark.parametrize(("q", "number"), [("42", 42), ("#42", 42), (" #7 ", 7), ("Wi-Fi", None), ("4x", None)])
+def test_search_matches_the_incident_number(incidents, monkeypatch, q, number):
+    """A number (with or without #) also matches the id; other text only title and description."""
+    seen = {}
+
+    def list_incidents(user, filters, page, size):
+        seen["q"] = filters["q"]
+        return [], 0
+
+    monkeypatch.setattr(incidents.repository, "list_incidents", list_incidents)
+    status, _ = call(incidents, "GET", "/api/incidents", ADMIN, query={"q": q})
+    assert status == 200 and seen["q"] == q.strip()
+    stripped = seen["q"].lstrip("#").strip()
+    assert (int(stripped) if stripped.isdecimal() else None) == number

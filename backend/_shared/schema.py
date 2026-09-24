@@ -149,6 +149,18 @@ CREATE TABLE IF NOT EXISTS incident_events (
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Added after launch. CREATE TABLE IF NOT EXISTS never changes an existing table,
+-- so the column is added separately; IF NOT EXISTS makes it safe on every start.
+-- subject_id: the person an event is about (for engineer_reassigned, the engineer
+-- taken off the ticket), so an engineer's history doesn't depend on matching names.
+ALTER TABLE incident_events ADD COLUMN IF NOT EXISTS subject_id INTEGER REFERENCES users(id);
+-- One-off backfill for reassignments logged before the column existed: match the
+-- stored name only when exactly one user has it. Touches nothing once filled.
+UPDATE incident_events e SET subject_id = u.id
+  FROM users u
+ WHERE e.type = 'engineer_reassigned' AND e.subject_id IS NULL AND u.name = e.from_value
+   AND (SELECT count(*) FROM users same WHERE same.name = e.from_value) = 1;
+
 CREATE INDEX IF NOT EXISTS idx_incidents_status ON incidents (status);
 CREATE INDEX IF NOT EXISTS idx_incidents_reporter ON incidents (reporter_id);
 -- Recurring-issue lookups: same issue type at the same location within N days.
@@ -156,6 +168,7 @@ CREATE INDEX IF NOT EXISTS idx_incidents_location
     ON incidents (building_id, floor_id, seat_id, issue_type, created_at);
 CREATE INDEX IF NOT EXISTS idx_incident_engineers_engineer ON incident_engineers (engineer_id);
 CREATE INDEX IF NOT EXISTS idx_incident_events_incident ON incident_events (incident_id);
+CREATE INDEX IF NOT EXISTS idx_incident_events_subject ON incident_events (subject_id) WHERE subject_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_incident_notes_incident ON incident_notes (incident_id);
 CREATE INDEX IF NOT EXISTS idx_incident_work_logs_incident ON incident_work_logs (incident_id);
 

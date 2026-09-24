@@ -42,6 +42,10 @@ class PrimaryTaken(Exception):
 
 
 ON_TICKET = "EXISTS (SELECT 1 FROM incident_engineers ie WHERE ie.incident_id = i.id AND ie.engineer_id = %s)"
+REASSIGNED_OFF = (
+    "EXISTS (SELECT 1 FROM incident_events ev WHERE ev.incident_id = i.id"
+    " AND ev.type = 'engineer_reassigned' AND ev.subject_id = %s)"
+)
 UNASSIGNED = "NOT EXISTS (SELECT 1 FROM incident_engineers ie WHERE ie.incident_id = i.id)"
 
 
@@ -71,9 +75,9 @@ def list_incidents(user: dict, filters: dict, page: int, page_size: int) -> tupl
     elif filters.get("scope") == "pool":
         conditions.append(sql.SQL(UNASSIGNED))
     if filters.get("engineer_id"):
-        # Every ticket this engineer is on, as primary or helper.
-        conditions.append(sql.SQL(ON_TICKET))
-        params.append(filters["engineer_id"])
+        # Every ticket this engineer is on (primary or helper), or was reassigned off.
+        conditions.append(sql.SQL(f"({ON_TICKET} OR {REASSIGNED_OFF})"))
+        params += [filters["engineer_id"], filters["engineer_id"]]
     if filters.get("pending"):
         conditions.append(sql.SQL(
             "EXISTS (SELECT 1 FROM incident_requests r WHERE r.incident_id = i.id"
@@ -85,8 +89,14 @@ def list_incidents(user: dict, filters: dict, page: int, page_size: int) -> tupl
             conditions.append(sql.SQL("{} = %s").format(sql.Identifier("i", column)))
             params.append(filters[column])
     if filters.get("q"):
-        conditions.append(sql.SQL("(i.title ILIKE %s OR i.description ILIKE %s)"))
-        params += [f"%{filters['q']}%"] * 2
+        # "42" or "#42" also finds incident number 42.
+        number = filters["q"].lstrip("#").strip()
+        if number.isascii() and number.isdecimal():
+            conditions.append(sql.SQL("(i.id = %s OR i.title ILIKE %s OR i.description ILIKE %s)"))
+            params += [int(number), *[f"%{filters['q']}%"] * 2]
+        else:
+            conditions.append(sql.SQL("(i.title ILIKE %s OR i.description ILIKE %s)"))
+            params += [f"%{filters['q']}%"] * 2
 
     query = sql.SQL(LIST_SELECT + " WHERE {} ORDER BY i.created_at DESC, i.id DESC LIMIT %s OFFSET %s").format(
         sql.SQL(" AND ").join(conditions)
@@ -99,12 +109,21 @@ def list_incidents(user: dict, filters: dict, page: int, page_size: int) -> tupl
 
 
 def engineer_roles(engineer_id: int, incident_ids: list[int]) -> dict[int, str]:
-    """This engineer's role (primary or helper) on each of these tickets."""
+    """
+    This engineer's role on each of these tickets: primary or helper if they are
+    on it now, otherwise "reassigned" if an admin took it off them (audit log).
+    """
     rows = db.fetch_all(
-        "SELECT incident_id, role FROM incident_engineers WHERE engineer_id = %s AND incident_id = ANY(%s)",
-        (engineer_id, incident_ids),
+        "SELECT i.id AS incident_id,"
+        "       coalesce(ie.role, CASE WHEN ev.subject_id IS NOT NULL THEN 'reassigned' END) AS role"
+        "  FROM unnest(%(ids)s::int[]) AS i(id)"
+        "  LEFT JOIN incident_engineers ie ON ie.incident_id = i.id AND ie.engineer_id = %(engineer)s"
+        "  LEFT JOIN LATERAL (SELECT e.subject_id FROM incident_events e"
+        "                      WHERE e.incident_id = i.id AND e.type = 'engineer_reassigned'"
+        "                        AND e.subject_id = %(engineer)s LIMIT 1) ev ON true",
+        {"ids": incident_ids, "engineer": engineer_id},
     )
-    return {row["incident_id"]: row["role"] for row in rows}
+    return {row["incident_id"]: row["role"] for row in rows if row["role"]}
 
 
 def user_name(user_id: int) -> str | None:
@@ -273,12 +292,12 @@ def touch(incident_id: int) -> None:
 
 
 def add_event(incident_id: int, actor_id: int, event_type: str, from_value: str | None = None,
-              to_value: str | None = None, reason: str | None = None) -> None:
-    """Append one row to the audit log."""
+              to_value: str | None = None, reason: str | None = None, subject_id: int | None = None) -> None:
+    """Append one row to the audit log. subject_id is the person the event is about, if any."""
     db.execute(
-        "INSERT INTO incident_events (incident_id, actor_id, type, from_value, to_value, reason)"
-        " VALUES (%s, %s, %s, %s, %s, %s)",
-        (incident_id, actor_id, event_type, from_value, to_value, reason),
+        "INSERT INTO incident_events (incident_id, actor_id, type, from_value, to_value, reason, subject_id)"
+        " VALUES (%s, %s, %s, %s, %s, %s, %s)",
+        (incident_id, actor_id, event_type, from_value, to_value, reason, subject_id),
     )
 
 

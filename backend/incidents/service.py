@@ -593,6 +593,7 @@ def assign_engineer(user: dict, incident_id: int, data: dict) -> dict:
             repository.add_event(
                 incident_id, user["id"], "engineer_reassigned",
                 previous["name"] if previous else None, engineer["name"],
+                subject_id=previous["id"] if previous else None,
             )
     except repository.PrimaryTaken as exc:
         raise Conflict("Another engineer took this ticket just now. Refresh and try again.") from exc

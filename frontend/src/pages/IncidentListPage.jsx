@@ -66,7 +66,7 @@ const incidentShape = PropTypes.shape({
   updated_at: PropTypes.string.isRequired,
   version: PropTypes.number,
   status_since: PropTypes.string,
-  engineer_role: PropTypes.oneOf(['primary', 'helper', null]),
+  engineer_role: PropTypes.oneOf(['primary', 'helper', 'reassigned', null]),
 });
 
 /**
@@ -168,8 +168,8 @@ function IncidentTable({ items, onOpen, selection = null }) {
                   <Chip
                     size="small"
                     variant="outlined"
-                    color={incident.engineer_role === 'primary' ? 'primary' : 'default'}
-                    label={incident.engineer_role === 'primary' ? 'Their role: primary' : 'Their role: helper'}
+                    color={{ primary: 'primary', helper: 'default', reassigned: 'warning' }[incident.engineer_role]}
+                    label={{ primary: 'Their role: primary', helper: 'Their role: helper', reassigned: 'Reassigned off' }[incident.engineer_role]}
                     sx={{ display: 'flex', width: 'fit-content', mt: 0.5 }}
                   />
                 )}
@@ -217,7 +217,7 @@ function IncidentCards({ items }) {
               <Typography variant="caption" color="text.secondary">
                 {[
                   incident.primary_engineer_name || 'Unassigned',
-                  incident.engineer_role && `their role: ${incident.engineer_role}`,
+                  incident.engineer_role && (incident.engineer_role === 'reassigned' ? 'reassigned off' : `their role: ${incident.engineer_role}`),
                   !incident.is_archived && !incident.is_voided && `${STATUS_LABELS[incident.status]} for ${formatStatusAge(incident.status_since)}`,
                   incident.is_voided && `Voided: ${incident.void_reason}`,
                   `updated ${formatDateTime(incident.updated_at)}`,
@@ -377,7 +377,7 @@ export default function IncidentListPage() {
           <TextField
             size="small"
             label="Search"
-            placeholder="Title or description"
+            placeholder="Title, description or #number"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             sx={{ flexGrow: 1 }}
