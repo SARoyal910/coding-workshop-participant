@@ -220,7 +220,7 @@ def get_incident(user: dict, incident_id: int) -> dict:
             "can_add_note": allowed(rules.can_add_note(user, engineer_ids)),
             "can_join": allowed(rules.can_join(user, engineer_ids)),
             "can_acknowledge": allowed(rules.can_acknowledge(user, status, engineer_ids)),
-            "can_change_priority": allowed(rules.can_change_priority(user)),
+            "can_change_priority": allowed(rules.can_change_priority(user, engineer_ids)),
             "can_request_reopen": allowed(
                 rules.can_request_reopen(user, status, reporter_id, bool(pending_types))
                 and "reopen" not in pending_types
@@ -630,17 +630,17 @@ def acknowledge_incident(user: dict, incident_id: int) -> dict:
 
 def change_priority(user: dict, incident_id: int, data: dict) -> dict:
     """
-    Change the priority (admins only) with a reason; always logged.
-    Setting the same priority again is a no-op with no event (13.4).
+    Change the priority with a reason; always logged. An admin, or an engineer
+    on the ticket. Setting the same priority again is a no-op with no event (13.4).
 
     Raises:
-        Forbidden: not an admin.
+        Forbidden: not an admin or an engineer on the ticket.
         ValidationError: bad priority or missing reason.
         Conflict: archived/voided, or the ticket changed since it was loaded.
     """
-    incident, _ = _load_visible(user, incident_id)
-    if not rules.can_change_priority(user):
-        raise Forbidden("Only an admin can change the priority")
+    incident, engineer_ids = _load_visible(user, incident_id)
+    if not rules.can_change_priority(user, engineer_ids):
+        raise Forbidden("Only an admin or an engineer on this ticket can change the priority")
     _ensure_changeable(incident)
 
     errors: dict[str, str] = {}

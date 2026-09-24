@@ -112,9 +112,12 @@ def can_acknowledge(user: dict, status: str, engineer_ids: set[int]) -> bool:
     return user["role"] == "engineer" and user["id"] in engineer_ids and status in ACTIVE_STATUSES
 
 
-def can_change_priority(user: dict) -> bool:
-    """Only admins change the priority once a ticket exists."""
-    return user["role"] == "admin"
+def can_change_priority(user: dict, engineer_ids: set[int]) -> bool:
+    """
+    An admin or an engineer on the ticket may change its priority, to any level.
+    (Reporting a new ticket as critical is still admin-only: can_report_priority.)
+    """
+    return user["role"] == "admin" or (user["role"] == "engineer" and user["id"] in engineer_ids)
 
 
 def can_report_priority(user: dict, priority: str) -> bool:

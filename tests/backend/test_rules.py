@@ -230,11 +230,15 @@ def test_can_acknowledge(rules, user, status, expected):
 
 
 @pytest.mark.parametrize(("user", "expected"), [
-    (ADMIN, True), (REPORTER, False), (OTHER_EMPLOYEE, False), (ASSIGNED_ENGINEER, False),
+    (ADMIN, True),
+    (ASSIGNED_ENGINEER, True),      # working the ticket
+    (UNASSIGNED_ENGINEER, False),   # must take or join it first
+    (REPORTER, False),
+    (OTHER_EMPLOYEE, False),
 ])
 def test_can_change_priority(rules, user, expected):
-    """Only admins change the priority of an existing ticket."""
-    assert rules.can_change_priority(user) is expected
+    """An admin or an engineer on the ticket may change the priority."""
+    assert rules.can_change_priority(user, ON_TICKET) is expected
 
 
 @pytest.mark.parametrize(("user", "priority", "expected"), [

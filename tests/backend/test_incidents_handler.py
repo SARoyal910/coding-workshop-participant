@@ -481,7 +481,7 @@ def test_reporter_cannot_change_priority(incidents):
     """Priority changes are admin-only."""
     status, body = call(incidents, "POST", f"/api/incidents/{INCIDENT_ID}/priority", REPORTER,
                         {"priority": "high", "reason": "Urgent", "version": 3})
-    assert (status, body["error"]) == (403, "Only an admin can change the priority")
+    assert (status, body["error"]) == (403, "Only an admin or an engineer on this ticket can change the priority")
 
 
 def test_employee_cannot_report_critical(incidents):
@@ -741,3 +741,34 @@ def test_work_log_up_to_the_daily_limit_is_saved_under_the_lock(day_logged):
                      {"work_date": "2026-01-02", "hours": 4, "description": "Rewired the dock"})
     assert status == 200
     assert day_logged.writes.index("lock") < day_logged.writes.index("add_work_log")
+
+
+# ---------- engineers on the ticket change priority, except critical ----------
+
+PRIORITY_PATH = f"/api/incidents/{INCIDENT_ID}/priority"
+
+
+def test_engineer_on_ticket_changes_priority(incidents, monkeypatch):
+    monkeypatch.setattr(incidents.repository, "update_priority",
+                        lambda incident_id, version, priority: incidents.writes.append(("priority", priority)) or True)
+    status, _ = call(incidents, "POST", PRIORITY_PATH, ASSIGNED_ENGINEER,
+                     {"priority": "high", "reason": "Affects the whole team", "version": 3})
+    assert status == 200
+    assert ("priority", "high") in incidents.writes
+
+
+def test_engineer_not_on_ticket_cannot_change_priority(incidents):
+    status, _ = call(incidents, "POST", PRIORITY_PATH, UNASSIGNED_ENGINEER,
+                     {"priority": "high", "reason": "x", "version": 3})
+    assert status == 403
+
+
+@pytest.mark.parametrize(("current", "new"), [("high", "critical"), ("critical", "high")])
+def test_engineer_on_ticket_can_set_or_clear_critical(incidents, monkeypatch, current, new):
+    """Engineers working the ticket may raise or lower it to any level; resolving it clears the site alert anyway."""
+    incidents.incident = incident_row(priority=current)
+    monkeypatch.setattr(incidents.repository, "update_priority",
+                        lambda incident_id, version, priority: incidents.writes.append(("priority", priority)) or True)
+    status, _ = call(incidents, "POST", PRIORITY_PATH, ASSIGNED_ENGINEER, {"priority": new, "reason": "x", "version": 3})
+    assert status == 200
+    assert ("priority", new) in incidents.writes
