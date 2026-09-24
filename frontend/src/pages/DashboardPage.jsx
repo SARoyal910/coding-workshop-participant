@@ -435,20 +435,23 @@ function EngineerDashboard({ data }) {
           {
             label: 'All my tickets', value: data.totals.total, caption: `${data.totals.active} active · ${data.totals.archived} archived`, to: '/incidents?scope=mine',
           },
+          // Every active status has a tile, so these always add up to "active" above.
+          { label: 'Open', value: counts.open, caption: 'Taken, not started', to: '/incidents?scope=mine&status=open' },
           { label: 'In progress', value: counts.in_progress, to: '/incidents?scope=mine&status=in_progress' },
           {
             label: 'Blocked', value: counts.blocked, to: '/incidents?scope=mine&status=blocked', tone: counts.blocked ? 'error.main' : undefined,
           },
-          { label: 'Resolved', value: counts.resolved, to: '/incidents?scope=mine&status=resolved' },
-          { label: 'Unassigned pool', value: data.unassigned_pool, caption: 'Tickets nobody has picked up', to: '/incidents?scope=pool' },
+          { label: 'Resolved', value: counts.resolved, caption: 'Ready for you to close', to: '/incidents?scope=mine&status=resolved' },
+          { label: 'Awaiting approval', value: counts.closed, caption: 'Closed; waiting for an admin', to: '/incidents?scope=mine&status=closed' },
         ]}
         />
       </Section>
-      <Section title={`My last ${data.window_days} days`}>
+      <Section title="My shift and workload">
         <TileRow tiles={[
+          { label: 'Unassigned pool', value: data.unassigned_pool, caption: 'Tickets nobody has picked up', to: '/incidents?scope=pool' },
           { label: 'My shift', value: me.on_shift_now ? 'On now' : 'Off shift', caption: SHIFT_LABELS[me.shift] },
-          { label: 'Hours logged', value: Number(me.hours_logged || 0).toFixed(2) },
-          { label: 'Tickets helped on', value: me.helped_others },
+          { label: 'Hours logged', value: Number(me.hours_logged || 0).toFixed(2), caption: `Last ${data.window_days} days` },
+          { label: 'Tickets helped on', value: me.helped_others, caption: `Last ${data.window_days} days` },
           {
             label: 'Missed shift commitments', value: me.missed_shifts, tone: me.missed_shifts ? 'error.main' : undefined, caption: 'Acknowledged but not resolved or blocked before shift end',
           },
@@ -494,6 +497,7 @@ function EmployeeDashboard({ data }) {
           {
             label: 'Resolved', value: counts.resolved, caption: 'Fixed; the engineer will close it', to: '/incidents?status=resolved', tone: counts.resolved ? 'success.main' : undefined,
           },
+          { label: 'Awaiting approval', value: counts.closed, caption: 'Closed; an admin will sign it off', to: '/incidents?status=closed' },
         ]}
         />
       </Section>
