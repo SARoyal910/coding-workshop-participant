@@ -70,6 +70,10 @@ def list_incidents(user: dict, filters: dict, page: int, page_size: int) -> tupl
         params.append(user["id"])
     elif filters.get("scope") == "pool":
         conditions.append(sql.SQL(UNASSIGNED))
+    if filters.get("engineer_id"):
+        # Every ticket this engineer is on, as primary or helper.
+        conditions.append(sql.SQL(ON_TICKET))
+        params.append(filters["engineer_id"])
     if filters.get("pending"):
         conditions.append(sql.SQL(
             "EXISTS (SELECT 1 FROM incident_requests r WHERE r.incident_id = i.id"
@@ -92,6 +96,21 @@ def list_incidents(user: dict, filters: dict, page: int, page_size: int) -> tupl
     for row in rows:
         del row["total"]
     return rows, total
+
+
+def engineer_roles(engineer_id: int, incident_ids: list[int]) -> dict[int, str]:
+    """This engineer's role (primary or helper) on each of these tickets."""
+    rows = db.fetch_all(
+        "SELECT incident_id, role FROM incident_engineers WHERE engineer_id = %s AND incident_id = ANY(%s)",
+        (engineer_id, incident_ids),
+    )
+    return {row["incident_id"]: row["role"] for row in rows}
+
+
+def user_name(user_id: int) -> str | None:
+    """Return a user's name, or None if there is no such user."""
+    row = db.fetch_one("SELECT name FROM users WHERE id = %s", (user_id,))
+    return row["name"] if row else None
 
 
 def list_site_alerts() -> list[dict]:

@@ -66,6 +66,7 @@ const incidentShape = PropTypes.shape({
   updated_at: PropTypes.string.isRequired,
   version: PropTypes.number,
   status_since: PropTypes.string,
+  engineer_role: PropTypes.oneOf(['primary', 'helper', null]),
 });
 
 /**
@@ -161,7 +162,18 @@ function IncidentTable({ items, onOpen, selection = null }) {
                 <Typography variant="caption" color="text.secondary">{CATEGORY_LABELS[incident.category]}</Typography>
               </TableCell>
               <TableCell sx={{ minWidth: 160 }}>{formatLocation(incident)}</TableCell>
-              <TableCell>{incident.primary_engineer_name || <Typography variant="body2" color="text.secondary">Unassigned</Typography>}</TableCell>
+              <TableCell>
+                {incident.primary_engineer_name || <Typography variant="body2" color="text.secondary">Unassigned</Typography>}
+                {incident.engineer_role && (
+                  <Chip
+                    size="small"
+                    variant="outlined"
+                    color={incident.engineer_role === 'primary' ? 'primary' : 'default'}
+                    label={incident.engineer_role === 'primary' ? 'Their role: primary' : 'Their role: helper'}
+                    sx={{ display: 'flex', width: 'fit-content', mt: 0.5 }}
+                  />
+                )}
+              </TableCell>
               <TableCell sx={{ whiteSpace: 'nowrap' }}>{formatDateTime(incident.updated_at)}</TableCell>
             </TableRow>
           ))}
@@ -205,6 +217,7 @@ function IncidentCards({ items }) {
               <Typography variant="caption" color="text.secondary">
                 {[
                   incident.primary_engineer_name || 'Unassigned',
+                  incident.engineer_role && `their role: ${incident.engineer_role}`,
                   !incident.is_archived && !incident.is_voided && `${STATUS_LABELS[incident.status]} for ${formatStatusAge(incident.status_since)}`,
                   incident.is_voided && `Voided: ${incident.void_reason}`,
                   `updated ${formatDateTime(incident.updated_at)}`,
@@ -386,6 +399,15 @@ export default function IncidentListPage() {
           />
         </Stack>
 
+        {params.get('engineer_id') && data?.engineer && (
+          <Box sx={{ px: 2, pb: 1 }}>
+            <Chip
+              color="primary"
+              label={`Engineer: ${data.engineer.name} · ${data.total} ${params.get('archived') === 'true' ? 'archived' : 'active'} ticket${data.total === 1 ? '' : 's'}`}
+              onDelete={() => updateParams({ engineer_id: '' })}
+            />
+          </Box>
+        )}
         {params.get('pending') && (
           <Box sx={{ px: 2, pb: 1 }}>
             <Chip

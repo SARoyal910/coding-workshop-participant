@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react';
 import PropTypes from 'prop-types';
+import { Link as RouterLink } from 'react-router-dom';
 import { useMediaQuery } from 'react-responsive';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -8,6 +9,7 @@ import CardContent from '@mui/material/CardContent';
 import Chip from '@mui/material/Chip';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import IconButton from '@mui/material/IconButton';
+import Link from '@mui/material/Link';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Switch from '@mui/material/Switch';
@@ -183,6 +185,13 @@ export default function EngineersPage() {
 
   const canChange = (engineer) => isAdmin || engineer.id === user.id;
 
+  /** Admins click a name to see every ticket that engineer is on. */
+  const nameLink = (engineer) => (isAdmin ? (
+    <Link component={RouterLink} to={`/incidents?engineer_id=${engineer.id}`} color="inherit" underline="hover">
+      {engineer.name}
+    </Link>
+  ) : engineer.name);
+
   const editButton = (engineer) => isAdmin && (
     <Tooltip title={`Edit ${engineer.name}`}>
       <IconButton size="small" aria-label={`Edit ${engineer.name}`} onClick={() => setForm({ mode: 'edit', engineer })}>
@@ -204,7 +213,7 @@ export default function EngineersPage() {
           <Card key={engineer.id}>
             <CardContent>
               <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
-                <Typography sx={{ fontWeight: 600 }}>{engineer.name}</Typography>
+                <Typography sx={{ fontWeight: 600 }}>{nameLink(engineer)}</Typography>
                 {editButton(engineer)}
               </Stack>
               <Typography variant="body2" color="text.secondary">
@@ -242,7 +251,7 @@ export default function EngineersPage() {
               <TableRow key={engineer.id} hover>
                 <TableCell>
                   <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                    {engineer.name}
+                    {nameLink(engineer)}
                     {engineer.id === user.id && ' (you)'}
                   </Typography>
                   <Typography variant="caption" color="text.secondary">{contact(engineer)}</Typography>

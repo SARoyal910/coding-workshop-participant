@@ -358,7 +358,16 @@ function AdminDashboard({ data }) {
             columns={[
               ['Engineer', (row) => (
                 <Box>
-                  <Typography variant="body2" sx={{ fontWeight: 600 }}>{row.name}</Typography>
+                  <Link
+                    component={RouterLink}
+                    to={`/incidents?engineer_id=${row.id}`}
+                    variant="body2"
+                    color="inherit"
+                    underline="hover"
+                    sx={{ display: 'block', fontWeight: 600 }}
+                  >
+                    {row.name}
+                  </Link>
                   <Typography variant="caption" color="text.secondary">{`${CATEGORY_LABELS[row.specialty]} · ${SHIFT_LABELS[row.shift]}`}</Typography>
                 </Box>
               )],

@@ -663,3 +663,28 @@ def test_engineer_on_ticket_closes_it_and_asks_an_admin(incidents):
     assert status == 200
     assert ("update_status", "closed") in incidents.writes
     assert ("create_request", "close_approval") in incidents.writes
+
+
+# ---------- admin: every ticket one engineer is on ----------
+
+@pytest.mark.parametrize("user", [REPORTER, ASSIGNED_ENGINEER])
+def test_only_admins_filter_by_engineer(incidents, user):
+    status, body = call(incidents, "GET", "/api/incidents", user, query={"engineer_id": "20"})
+    assert (status, body["details"]) == (400, {"engineer_id": "Only admins can filter by engineer"})
+
+
+def test_filter_by_unknown_engineer_is_404(incidents, monkeypatch):
+    monkeypatch.setattr(incidents.repository, "user_name", lambda user_id: None)
+    status, body = call(incidents, "GET", "/api/incidents", ADMIN, query={"engineer_id": "999"})
+    assert (status, body["error"]) == (404, "Engineer not found")
+
+
+def test_filter_by_engineer_names_them_and_gives_their_role(incidents, monkeypatch):
+    repo = incidents.repository
+    monkeypatch.setattr(repo, "user_name", lambda user_id: "Priya Nair")
+    monkeypatch.setattr(repo, "list_incidents", lambda user, filters, page, size: ([{"id": 5}, {"id": 6}], 2))
+    monkeypatch.setattr(repo, "engineer_roles", lambda engineer_id, ids: {5: "primary", 6: "helper"})
+    status, body = call(incidents, "GET", "/api/incidents", ADMIN, query={"engineer_id": "20"})
+    assert status == 200
+    assert body["engineer"] == {"id": 20, "name": "Priya Nair"}
+    assert [(i["id"], i["engineer_role"]) for i in body["items"]] == [(5, "primary"), (6, "helper")]

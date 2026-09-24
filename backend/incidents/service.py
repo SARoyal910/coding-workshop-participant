@@ -55,6 +55,7 @@ ALL_ISSUE_TYPES = tuple(issue for issues in ISSUE_TYPES.values() for issue in is
 SIMILAR_LIMIT = 5
 LIST_FILTERS = {
     "page", "page_size", "status", "priority", "category", "building_id", "q", "archived", "scope", "pending",
+    "engineer_id",
 }
 
 STALE_VERSION = "This ticket was updated by someone else. Refresh to see the latest."
@@ -138,7 +139,11 @@ def _recurring_detail(user: dict, incident: dict) -> dict | None:
 # ---------- queries ----------
 
 def list_incidents(user: dict, params: dict) -> dict:
-    """Return one page of incidents the user may see: {"items", "total", "page", "page_size"}."""
+    """
+    Return one page of incidents the user may see: {"items", "total", "page", "page_size"}.
+    With engineer_id (admins), only that engineer's tickets, each with their role on it,
+    plus "engineer": {"id", "name"} for the page heading.
+    """
     errors: dict[str, str] = {}
     reject_unknown_fields(params, LIST_FILTERS, errors)
     raise_if_errors(errors)
@@ -153,16 +158,33 @@ def list_incidents(user: dict, params: dict) -> dict:
         "archived": get_choice(params, "archived", ("true", "false"), errors, default="false") == "true",
         "scope": get_choice(params, "scope", ("mine", "pool", "all"), errors, required=False),
         "pending": get_choice(params, "pending", REQUEST_TYPES, errors, required=False),
+        "engineer_id": get_int(params, "engineer_id", errors, required=False),
     }
     if filters["scope"] and user["role"] != "engineer":
         errors["scope"] = "Only engineers can filter by scope"
+    if filters["engineer_id"] and user["role"] != "admin":
+        errors["engineer_id"] = "Only admins can filter by engineer"
     raise_if_errors(errors)
 
+    engineer = None
+    if filters["engineer_id"]:
+        name = repository.user_name(filters["engineer_id"])
+        if name is None:
+            raise NotFound("Engineer not found")
+        engineer = {"id": filters["engineer_id"], "name": name}
+
     items, total = repository.list_incidents(user, filters, page, page_size)
-    levels = _recurring_levels([item["id"] for item in items])
+    ids = [item["id"] for item in items]
+    levels = _recurring_levels(ids)
+    roles = repository.engineer_roles(engineer["id"], ids) if engineer and ids else {}
     for item in items:
         item["recurring"] = levels[item["id"]]
-    return {"items": items, "total": total, "page": page, "page_size": page_size}
+        if engineer:
+            item["engineer_role"] = roles.get(item["id"])
+    result = {"items": items, "total": total, "page": page, "page_size": page_size}
+    if engineer:
+        result["engineer"] = engineer
+    return result
 
 
 def get_incident(user: dict, incident_id: int) -> dict:

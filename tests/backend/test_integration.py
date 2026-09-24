@@ -587,6 +587,30 @@ def test_admin_changes_roles_and_they_apply_immediately(handlers):
     assert call(auth, "PUT", f"/api/auth/users/{admin_id}/role", {"role": "employee"}, admin_token)[0] == 409
 
 
+def test_admin_sees_every_ticket_an_engineer_is_on(handlers):
+    """
+    The engineer filter returns exactly the engineer's tickets, with their role: active ones,
+    and in the archive view the archived and voided ones (voided tickets live in the archive).
+    """
+    from _shared import db
+
+    incidents = handlers["incidents"]
+    admin_token = login(handlers, "admin@acme.inc", TEST_SEED_PASSWORD)
+    priya = db.fetch_one("SELECT id FROM users WHERE email = 'priya.nair@acme.inc'")["id"]
+    expected = {row["incident_id"]: row["role"] for row in db.fetch_all(
+        "SELECT incident_id, role FROM incident_engineers WHERE engineer_id = %s", (priya,))}
+
+    seen = {}
+    for archived in ("false", "true"):
+        response = incidents(make_event("GET", "/api/incidents", token=admin_token,
+                                        query={"engineer_id": str(priya), "archived": archived, "page_size": "100"}))
+        body = response_json(response)
+        assert response["statusCode"] == 200, body
+        assert body["engineer"]["name"] == "Priya Nair"
+        seen.update({item["id"]: item["engineer_role"] for item in body["items"]})
+    assert seen == expected
+
+
 def test_critical_incident_is_a_site_alert(handlers):
     """
     Only an admin may report critical; while it is active every role sees it
