@@ -384,12 +384,25 @@ function AdminDashboard({ data }) {
               [`Hours (${data.window_days}d)`, (row) => Number(row.hours_logged).toFixed(2)],
               ['Missed shift commitments', (row) => (
                 row.missed_shifts
-                  ? <Chip size="small" color="error" icon={<WarningAmberIcon />} label={row.missed_shifts} />
+                  ? (
+                    <Chip
+                      size="small"
+                      color="error"
+                      icon={<WarningAmberIcon />}
+                      label={row.missed_shifts}
+                      component={RouterLink}
+                      to={`/missed-shifts?engineer_id=${row.id}`}
+                      clickable
+                    />
+                  )
                   : 0
               )],
             ]}
           />
         </Paper>
+        <Button component={RouterLink} to="/missed-shifts" size="small" sx={{ mt: 1 }}>
+          {`View every missed shift commitment (${data.engineers.reduce((sum, row) => sum + row.missed_shifts, 0)})`}
+        </Button>
       </Section>
 
       <Section title="Most common issues" question={`What are the most common facility and technology issue categories? (${days})`}>
@@ -453,7 +466,7 @@ function EngineerDashboard({ data }) {
           { label: 'Hours logged', value: Number(me.hours_logged || 0).toFixed(2), caption: `Last ${data.window_days} days` },
           { label: 'Tickets helped on', value: me.helped_others, caption: `Last ${data.window_days} days` },
           {
-            label: 'Missed shift commitments', value: me.missed_shifts, tone: me.missed_shifts ? 'error.main' : undefined, caption: 'Acknowledged but not resolved or blocked before shift end',
+            label: 'Missed shift commitments', value: me.missed_shifts, tone: me.missed_shifts ? 'error.main' : undefined, caption: 'Acknowledged but not resolved or blocked before shift end', to: '/missed-shifts',
           },
         ]}
         />

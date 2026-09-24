@@ -21,6 +21,7 @@ const IncidentDetailPage = lazyWithReload(() => import('./pages/IncidentDetailPa
 const IncidentFormPage = lazyWithReload(() => import('./pages/IncidentFormPage'));
 const IncidentListPage = lazyWithReload(() => import('./pages/IncidentListPage'));
 const PeoplePage = lazyWithReload(() => import('./pages/PeoplePage'));
+const MissedShiftsPage = lazyWithReload(() => import('./pages/MissedShiftsPage'));
 
 /**
  * Wrap a lazily loaded page with a loading fallback.
@@ -63,6 +64,7 @@ export default function App() {
         <Route path="engineers" element={<RequireAuth roles={['admin', 'engineer']}>{lazyPage(EngineersPage)}</RequireAuth>} />
         <Route path="facilities" element={<RequireAuth roles={['admin']}>{lazyPage(FacilitiesPage)}</RequireAuth>} />
         <Route path="people" element={<RequireAuth roles={['admin']}>{lazyPage(PeoplePage)}</RequireAuth>} />
+        <Route path="missed-shifts" element={<RequireAuth roles={['admin', 'engineer']}>{lazyPage(MissedShiftsPage)}</RequireAuth>} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>

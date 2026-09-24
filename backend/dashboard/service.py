@@ -15,7 +15,11 @@ from _shared.constants import (
     SHIFTS,
     STATUSES,
 )
+from _shared.errors import Forbidden, NotFound
 from _shared.shifts import is_on_shift
+from _shared.validation import get_int, raise_if_errors, reject_unknown_fields
+
+MISSED_PARAMS = {"engineer_id"}
 
 
 def _percent(part: int, whole: int) -> int | None:
@@ -128,6 +132,37 @@ def employee_dashboard(user: dict) -> dict:
         "status_counts": _status_counts(repository.status_counts(user_id=user["id"])),
         "totals": repository.incident_totals(user_id=user["id"]),
     }
+
+
+def missed_shifts(user: dict, params: dict) -> dict:
+    """
+    The missed shift commitments behind the dashboard counts, one row each with
+    the ticket and the shift. Admins see everyone (or one engineer with
+    engineer_id); engineers see their own.
+
+    Raises:
+        Forbidden: an employee, or an engineer asking about someone else.
+        NotFound: engineer_id is not an engineer.
+    """
+    if user["role"] not in ("admin", "engineer"):
+        raise Forbidden("Only engineers and admins can see missed shift commitments")
+    errors: dict[str, str] = {}
+    reject_unknown_fields(params, MISSED_PARAMS, errors)
+    engineer_id = get_int(params, "engineer_id", errors, required=False)
+    raise_if_errors(errors)
+    if user["role"] == "engineer":
+        if engineer_id not in (None, user["id"]):
+            raise Forbidden("Engineers can only see their own missed shift commitments")
+        engineer_id = user["id"]
+
+    engineer = None
+    if engineer_id is not None:
+        rows = repository.engineer_workload(METRICS_WINDOW_DAYS, engineer_id=engineer_id)
+        if not rows:
+            raise NotFound("Engineer not found")
+        engineer = {"id": engineer_id, "name": rows[0]["name"]}
+    items = repository.missed_commitments(engineer_id)
+    return {"engineer": engineer, "total": len(items), "items": items}
 
 
 def get_dashboard(user: dict) -> dict:

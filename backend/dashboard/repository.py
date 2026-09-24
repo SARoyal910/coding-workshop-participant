@@ -5,7 +5,7 @@ excluded everywhere; archived ones only count toward historical metrics.
 """
 
 from _shared import db
-from _shared.engineer_stats import engineer_workload  # noqa: F401  (re-exported for service.py)
+from _shared.engineer_stats import engineer_workload, missed_commitments  # noqa: F401  (re-exported for service.py)
 
 # Conditions repeated in the queries below (kept as literal SQL so no query is
 # ever built from strings):

@@ -730,6 +730,32 @@ def test_critical_incident_is_a_site_alert(handlers):
     assert call(incidents, "GET", base, token=employee_token)[0] == 404
 
 
+def test_missed_shift_list_matches_the_counts(handlers):
+    """
+    The missed-shift list uses the same rule as the counts: for every engineer,
+    one row per missed commitment, each with the ticket and the shift.
+    """
+    dashboard = handlers["dashboard"]
+    admin_token = login(handlers, "admin@acme.inc", TEST_SEED_PASSWORD)
+    _, admin = call(dashboard, "GET", "/api/dashboard", token=admin_token)
+    response = dashboard(make_event("GET", "/api/dashboard/missed-shifts", token=admin_token))
+    everyone = response_json(response)
+    assert response["statusCode"] == 200
+    assert everyone["total"] == sum(row["missed_shifts"] for row in admin["engineers"]) > 0  # the seed has some
+
+    for row in admin["engineers"]:
+        response = dashboard(make_event("GET", "/api/dashboard/missed-shifts", token=admin_token,
+                                        query={"engineer_id": str(row["id"])}))
+        mine = response_json(response)
+        assert mine["total"] == row["missed_shifts"], row["name"]
+        for item in mine["items"]:
+            assert item["engineer_id"] == row["id"]
+            assert item["incident_id"] and item["incident_title"] and item["shift_ends_at"]
+            assert item["status_at_shift_end"] in ("open", "in_progress", "blocked", "resolved", "closed")
+            # The rule itself: not resolved by the end of the shift.
+            assert item["resolved_at"] is None or item["resolved_at"] > item["shift_ends_at"]
+
+
 def test_public_schema_untouched(test_schema):
     """Nothing written by these tests reached the demo data."""
     admin = _admin_connection()

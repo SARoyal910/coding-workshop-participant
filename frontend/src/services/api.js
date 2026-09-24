@@ -104,6 +104,7 @@ export const authApi = {
 
 export const dashboardApi = {
   get: () => request('GET', '/dashboard'),
+  missedShifts: (query) => request('GET', '/dashboard/missed-shifts', { query }),
 };
 
 export const incidentsApi = {

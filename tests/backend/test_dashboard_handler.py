@@ -202,3 +202,50 @@ def test_totals_are_scoped_to_the_role(dashboard, user, expected_filter):
     assert status == 200
     assert body["totals"] == {"total": 9, "active": 5, "archived": 4, "voided": 1}
     assert dashboard.calls["incident_totals"] == expected_filter
+
+
+# ---------- the missed shift commitments behind the counts ----------
+
+MISSED = [{"id": 1, "engineer_id": 20, "incident_id": 7, "status_at_shift_end": "in_progress"}]
+
+
+@pytest.fixture
+def missed(dashboard, monkeypatch):
+    """Record which engineer the list was asked for."""
+    def missed_commitments(engineer_id=None):
+        dashboard.calls["missed_for"] = engineer_id
+        return MISSED
+
+    monkeypatch.setattr(dashboard.repository, "missed_commitments", missed_commitments)
+    workload = dashboard.repository.engineer_workload
+    monkeypatch.setattr(dashboard.repository, "engineer_workload",
+                        lambda days, engineer_id=None: [{**row, "name": f"Engineer {row['id']}"}
+                                                        for row in workload(days, engineer_id)])
+    return dashboard
+
+
+def get_missed(state, user, query=None):
+    response = state.function.handler(make_event("GET", "/api/dashboard/missed-shifts", token=token_for(user), query=query))
+    return response["statusCode"], response_json(response)
+
+
+def test_employees_cannot_see_missed_shifts(missed):
+    assert get_missed(missed, EMPLOYEE)[0] == 403
+
+
+def test_engineer_sees_only_their_own_missed_shifts(missed):
+    status, body = get_missed(missed, ENGINEER)
+    assert (status, body["total"], body["engineer"]["id"]) == (200, 1, 20)
+    assert missed.calls["missed_for"] == 20
+    assert get_missed(missed, ENGINEER, {"engineer_id": "21"})[0] == 403
+
+
+def test_admin_sees_everyone_or_one_engineer(missed):
+    status, body = get_missed(missed, ADMIN)
+    assert (status, body["engineer"], missed.calls["missed_for"]) == (200, None, None)
+    status, body = get_missed(missed, ADMIN, {"engineer_id": "20"})
+    assert (status, body["engineer"], missed.calls["missed_for"]) == (200, {"id": 20, "name": "Engineer 20"}, 20)
+
+
+def test_missed_shifts_for_unknown_engineer_is_404(missed):
+    assert get_missed(missed, ADMIN, {"engineer_id": "99"})[0] == 404

@@ -119,8 +119,15 @@ function Flags({ engineer }) {
         </Tooltip>
       )}
       {engineer.missed_shifts > 0 && (
-        <Tooltip title="Acknowledged for a shift, but not resolved or blocked before it ended (last 30 days)">
-          <Chip size="small" color="error" label={`${engineer.missed_shifts} missed shift${engineer.missed_shifts === 1 ? '' : 's'}`} />
+        <Tooltip title="Acknowledged for a shift, but not resolved or blocked before it ended. Click for the details.">
+          <Chip
+            size="small"
+            color="error"
+            label={`${engineer.missed_shifts} missed shift${engineer.missed_shifts === 1 ? '' : 's'}`}
+            component={RouterLink}
+            to={`/missed-shifts?engineer_id=${engineer.id}`}
+            clickable
+          />
         </Tooltip>
       )}
     </Stack>
