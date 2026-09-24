@@ -9,15 +9,16 @@ import math
 
 # (from status, to status) -> who may do it and what the request must include.
 #   who "assigned": an engineer on the ticket, or an admin
-#   who "reporter": the person who reported it, or an admin
+# Reporters don't move tickets through the workflow; they can ask to reopen one.
 WORKFLOW = {
     ("open", "in_progress"): {"who": "assigned", "requires": None},
     ("open", "blocked"): {"who": "assigned", "requires": "reason"},
     ("in_progress", "blocked"): {"who": "assigned", "requires": "reason"},
     ("in_progress", "resolved"): {"who": "assigned", "requires": "resolution_note"},
     ("blocked", "in_progress"): {"who": "assigned", "requires": None},
-    # Closing asks an admin to approve; approval archives the ticket.
-    ("resolved", "closed"): {"who": "reporter", "requires": None},
+    # The engineer (or an admin) closes a resolved ticket; closing asks an admin
+    # to approve, and approval archives the ticket.
+    ("resolved", "closed"): {"who": "assigned", "requires": None},
 }
 
 
@@ -32,8 +33,6 @@ def is_permitted(rule: dict, user: dict, reporter_id: int, engineer_ids: set[int
         return True
     if rule["who"] == "assigned":
         return user["role"] == "engineer" and user["id"] in engineer_ids
-    if rule["who"] == "reporter":
-        return user["id"] == reporter_id
     return False
 
 

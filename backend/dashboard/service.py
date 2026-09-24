@@ -120,11 +120,10 @@ def engineer_dashboard(user: dict) -> dict:
 
 
 def employee_dashboard(user: dict) -> dict:
-    """The employee's own tickets, and how many are waiting for them to confirm."""
+    """The employee's own tickets by status."""
     return {
         "role": "employee",
         "status_counts": _status_counts(repository.status_counts(user_id=user["id"])),
-        "awaiting_your_confirmation": repository.awaiting_reporter_count(user["id"]),
     }
 
 

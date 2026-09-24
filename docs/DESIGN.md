@@ -162,7 +162,7 @@ erDiagram
 open -> in_progress | blocked
 in_progress -> blocked (reason required) | resolved (resolution note required)
 blocked -> in_progress
-resolved -> closed (reporter or admin) -> creates close_approval request
+resolved -> closed (engineer on the ticket or admin; never the reporter) -> creates close_approval request
   admin approves -> is_archived = true (read-only, hidden from active lists)
   admin rejects (reason) -> back to resolved
 resolved|closed (not archived) -> reporter submits reopen request (reason) -> admin approves -> in_progress

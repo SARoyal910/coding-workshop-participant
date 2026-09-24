@@ -463,7 +463,7 @@ function EmployeeDashboard({ data }) {
           { label: 'In progress', value: counts.in_progress, to: '/incidents?status=in_progress' },
           { label: 'Blocked', value: counts.blocked, to: '/incidents?status=blocked' },
           {
-            label: 'Waiting for you', value: data.awaiting_your_confirmation, caption: 'Resolved: confirm and close', to: '/incidents?status=resolved', tone: data.awaiting_your_confirmation ? 'success.main' : undefined,
+            label: 'Resolved', value: counts.resolved, caption: 'Fixed; the engineer will close it', to: '/incidents?status=resolved', tone: counts.resolved ? 'success.main' : undefined,
           },
         ]}
         />

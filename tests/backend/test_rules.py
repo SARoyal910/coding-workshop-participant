@@ -27,7 +27,7 @@ EXPECTED_TRANSITIONS = {
     ("in_progress", "blocked"): ("assigned", "reason"),
     ("in_progress", "resolved"): ("assigned", "resolution_note"),
     ("blocked", "in_progress"): ("assigned", None),
-    ("resolved", "closed"): ("reporter", None),
+    ("resolved", "closed"): ("assigned", None),
 }
 
 # Moves that must never be allowed through POST /{id}/status.
@@ -91,13 +91,13 @@ def test_is_permitted_for_assigned_engineer_moves(rules, user, expected):
 
 @pytest.mark.parametrize(("user", "expected"), [
     (ADMIN, True),
-    (REPORTER, True),
-    (ASSIGNED_ENGINEER, False),
+    (ASSIGNED_ENGINEER, True),
+    (REPORTER, False),             # closing has nothing to do with the reporter
     (UNASSIGNED_ENGINEER, False),
     (OTHER_EMPLOYEE, False),
 ])
-def test_is_permitted_for_reporter_moves(rules, user, expected):
-    """resolved -> closed: only the reporter, or an admin."""
+def test_is_permitted_to_close(rules, user, expected):
+    """resolved -> closed: only an engineer on the ticket, or an admin."""
     rule = rules.get_rule("resolved", "closed")
     assert rules.is_permitted(rule, user, REPORTER_ID, ON_TICKET) is expected
 
@@ -108,10 +108,10 @@ def test_employee_id_in_engineer_ids_is_still_not_permitted(rules):
     assert rules.is_permitted(rule, REPORTER, REPORTER_ID, {REPORTER["id"]}) is False
 
 
-def test_engineer_who_reported_the_ticket_can_close_it(rules):
-    """An engineer can also be a reporter; closing is decided by being the reporter."""
+def test_engineer_who_reported_the_ticket_cannot_close_it_unless_on_it(rules):
+    """Reporting a ticket gives no right to close it; being an engineer on it does."""
     rule = rules.get_rule("resolved", "closed")
-    assert rules.is_permitted(rule, UNASSIGNED_ENGINEER, UNASSIGNED_ENGINEER["id"], ON_TICKET) is True
+    assert rules.is_permitted(rule, UNASSIGNED_ENGINEER, UNASSIGNED_ENGINEER["id"], ON_TICKET) is False
 
 
 def test_unknown_who_is_denied_for_non_admins(rules):
@@ -127,9 +127,9 @@ def test_unknown_who_is_denied_for_non_admins(rules):
     (ASSIGNED_ENGINEER, "open", ["in_progress", "blocked"]),
     (ASSIGNED_ENGINEER, "in_progress", ["blocked", "resolved"]),
     (ASSIGNED_ENGINEER, "blocked", ["in_progress"]),
-    (ASSIGNED_ENGINEER, "resolved", []),  # closing is the reporter's call
+    (ASSIGNED_ENGINEER, "resolved", ["closed"]),
     (REPORTER, "open", []),
-    (REPORTER, "resolved", ["closed"]),
+    (REPORTER, "resolved", []),  # reporters don't close; they can ask to reopen
     (UNASSIGNED_ENGINEER, "open", []),
     (ADMIN, "in_progress", ["blocked", "resolved"]),
     (ADMIN, "resolved", ["closed"]),

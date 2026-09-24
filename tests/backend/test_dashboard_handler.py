@@ -62,7 +62,6 @@ def dashboard(load_service, monkeypatch):
     monkeypatch.setattr(repo, "blocked_incidents", lambda: [])
     monkeypatch.setattr(repo, "escalated_by_reporters", lambda: [])
     monkeypatch.setattr(repo, "unassigned_pool_count", lambda: 7)
-    monkeypatch.setattr(repo, "awaiting_reporter_count", lambda user_id: 3)
 
     import datetime as real_datetime
 
@@ -175,12 +174,11 @@ def test_engineer_without_a_profile_gets_no_row(dashboard, monkeypatch):
 
 
 def test_employee_sees_only_their_own_tickets(dashboard):
-    """Status counts are filtered to the employee's reports, plus how many await their confirmation."""
+    """Status counts are filtered to the employee's reports."""
     status, body = get_dashboard(dashboard, EMPLOYEE)
     assert status == 200
     assert dashboard.calls["status_counts"] == {"user_id": 10, "engineer_id": None}
     assert body == {
         "role": "employee",
         "status_counts": {"open": 4, "in_progress": 0, "blocked": 1, "resolved": 0, "closed": 0},
-        "awaiting_your_confirmation": 3,
     }

@@ -628,3 +628,22 @@ def test_assign_race_is_409(assignable, monkeypatch):
     monkeypatch.setattr(assignable.repository, "set_primary", taken)
     status, body = call(assignable, "POST", ASSIGN_PATH, ADMIN, {"engineer_id": 21})
     assert (status, body["error"]) == (409, "Another engineer took this ticket just now. Refresh and try again.")
+
+
+# ---------- closing belongs to the engineer (or an admin), not the reporter ----------
+
+def test_reporter_cannot_close_a_resolved_ticket(incidents):
+    """Closing has nothing to do with the employee who reported it."""
+    incidents.incident = incident_row(status="resolved")
+    status, body = call(incidents, "POST", STATUS_PATH, REPORTER, {"version": 3, "status": "closed"})
+    assert (status, body["error"]) == (403, "You don't have permission to make this change")
+    assert not incidents.writes
+
+
+def test_engineer_on_ticket_closes_it_and_asks_an_admin(incidents):
+    """The engineer closes a resolved ticket, which creates the admin's close approval."""
+    incidents.incident = incident_row(status="resolved")
+    status, _ = call(incidents, "POST", STATUS_PATH, ASSIGNED_ENGINEER, {"version": 3, "status": "closed"})
+    assert status == 200
+    assert ("update_status", "closed") in incidents.writes
+    assert ("create_request", "close_approval") in incidents.writes

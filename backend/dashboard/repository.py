@@ -166,13 +166,3 @@ def unassigned_pool_count() -> int:
         "   AND NOT EXISTS (SELECT 1 FROM incident_engineers ie WHERE ie.incident_id = i.id)",
     )
     return row["count"]
-
-
-def awaiting_reporter_count(user_id: int) -> int:
-    """The user's resolved tickets that they can now confirm and close."""
-    row = db.fetch_one(
-        "SELECT count(*) AS count FROM incidents i WHERE NOT i.is_voided AND NOT i.is_archived"
-        "   AND i.reporter_id = %s AND i.status = 'resolved'",
-        (user_id,),
-    )
-    return row["count"]

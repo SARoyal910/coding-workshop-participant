@@ -469,7 +469,6 @@ def test_dashboards_match_the_rows_they_summarize(handlers):
     assert status == 200, mine
     assert sum(mine["status_counts"].values()) == db.fetch_one(
         f"SELECT count(*) AS n {active} AND reporter_id = %s", (employee,))["n"]  # nosec B608
-    assert mine["awaiting_your_confirmation"] == mine["status_counts"]["resolved"]
 
     engineer = db.fetch_one("SELECT u.id, u.email FROM users u JOIN engineer_profiles p ON p.user_id = u.id"
                             " ORDER BY u.id LIMIT 1")
