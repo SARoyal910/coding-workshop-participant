@@ -27,6 +27,7 @@ from _shared.validation import (
     TITLE_MAX,
     get_choice,
     get_date,
+    get_id_list,
     get_int,
     get_number,
     get_pagination,
@@ -35,7 +36,10 @@ from _shared.validation import (
     reject_unknown_fields,
 )
 
-CREATE_FIELDS = {"title", "description", "category", "issue_type", "priority", "building_id", "floor_id", "seat_id"}
+CREATE_FIELDS = {
+    "title", "description", "category", "issue_type", "priority", "building_id", "floor_id", "seat_id", "seat_ids",
+}
+SEATS_MAX = 20  # seats one report may cover
 UPDATE_FIELDS = {"version", "title", "description"}
 STATUS_FIELDS = {"version", "status", "reason", "resolution_note"}
 NOTE_FIELDS = {"body"}
@@ -179,6 +183,7 @@ def get_incident(user: dict, incident_id: int) -> dict:
 
     return {
         **incident,
+        "seats": repository.get_seats(incident_id),
         "engineers": repository.get_engineers(incident_id),
         "notes": repository.get_notes(incident_id),
         "work_logs": repository.get_work_logs(incident_id),
@@ -312,6 +317,13 @@ def create_incident(user: dict, data: dict) -> dict:
         "floor_id": get_int(data, "floor_id", errors),
         "seat_id": get_int(data, "seat_id", errors, required=False),
     }
+    # Several seats (one problem across a row of desks): the first is the ticket's
+    # main seat, and all of them are recorded in incident_seats.
+    seat_ids = get_id_list(data, "seat_ids", errors, SEATS_MAX)
+    if seat_ids and fields["seat_id"]:
+        errors["seat_ids"] = "Send seat_id or seat_ids, not both"
+    elif seat_ids:
+        fields["seat_id"] = seat_ids[0]
     if fields["category"]:
         fields["issue_type"] = get_choice(data, "issue_type", ISSUE_TYPES[fields["category"]], errors)
     elif "issue_type" not in data:
@@ -323,12 +335,16 @@ def create_incident(user: dict, data: dict) -> dict:
     # Referenced ids must exist and fit together (13.3).
     if not repository.floor_in_building(fields["floor_id"], fields["building_id"]):
         errors["floor_id"] = "Floor not found in this building"
+    elif len(seat_ids) > 1 and not repository.seats_on_floor(seat_ids, fields["floor_id"]):
+        errors["seat_ids"] = "Every seat must be on this floor"
     elif fields["seat_id"] and not repository.seat_on_floor(fields["seat_id"], fields["floor_id"]):
         errors["seat_id"] = "Seat not found on this floor"
     raise_if_errors(errors)
 
     with repository.transaction():
         incident_id = repository.create_incident(fields, user["id"])
+        if len(seat_ids) > 1:
+            repository.add_seats(incident_id, seat_ids)
         repository.add_event(incident_id, user["id"], "created", to_value="open")
     return get_incident(user, incident_id)
 

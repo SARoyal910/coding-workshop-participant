@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Alert from '@mui/material/Alert';
+import Autocomplete from '@mui/material/Autocomplete';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Grid from '@mui/material/Grid';
@@ -18,6 +19,7 @@ import { CATEGORY_LABELS, PRIORITY_LABELS } from '../constants';
 
 const TITLE_MAX = 200;
 const DESCRIPTION_MAX = 5000;
+const SEATS_MAX = 20;
 
 const EMPTY_FORM = {
   title: '',
@@ -27,7 +29,7 @@ const EMPTY_FORM = {
   priority: 'medium',
   building_id: '',
   floor_id: '',
-  seat_id: '',
+  seat_ids: [],
 };
 
 /** Loads the form options once; defined outside the component so it never changes. */
@@ -76,8 +78,8 @@ export default function IncidentFormPage() {
   const setField = (field, value) => {
     const next = { ...values, [field]: value };
     if (field === 'category') next.issue_type = '';
-    if (field === 'building_id') { next.floor_id = ''; next.seat_id = ''; }
-    if (field === 'floor_id') next.seat_id = '';
+    if (field === 'building_id') { next.floor_id = ''; next.seat_ids = []; }
+    if (field === 'floor_id') next.seat_ids = [];
     setValues(next);
     setErrors((current) => ({ ...current, [field]: undefined }));
   };
@@ -99,7 +101,9 @@ export default function IncidentFormPage() {
         priority: values.priority,
         building_id: Number(values.building_id),
         floor_id: Number(values.floor_id),
-        ...(values.seat_id ? { seat_id: Number(values.seat_id) } : {}),
+        // One seat is sent as seat_id; a row of desks as seat_ids.
+        ...(values.seat_ids.length === 1 ? { seat_id: values.seat_ids[0] } : {}),
+        ...(values.seat_ids.length > 1 ? { seat_ids: values.seat_ids } : {}),
       });
       notify(`Incident #${created.id} reported`);
       navigate(`/incidents/${created.id}`);
@@ -178,33 +182,41 @@ export default function IncidentFormPage() {
               </TextField>
             </Grid>
 
-            <Grid size={{ xs: 12, sm: 4 }}>
+            <Grid size={{ xs: 12, sm: 6 }}>
               <TextField select label="Building" required {...field('building_id')}>
                 {options.buildings.map((item) => <MenuItem key={item.id} value={item.id}>{item.name}</MenuItem>)}
               </TextField>
             </Grid>
-            <Grid size={{ xs: 12, sm: 4 }}>
+            <Grid size={{ xs: 12, sm: 6 }}>
               <TextField select label="Floor" required {...field('floor_id')} disabled={submitting || !building}>
                 {(building?.floors || []).map((item) => (
                   <MenuItem key={item.id} value={item.id}>{`Floor ${item.number}`}</MenuItem>
                 ))}
               </TextField>
             </Grid>
-            <Grid size={{ xs: 12, sm: 4 }}>
-              <TextField
-                select
-                label="Seat (optional)"
-                {...field('seat_id')}
+            <Grid size={{ xs: 12 }}>
+              <Autocomplete
+                multiple
+                disableCloseOnSelect
+                options={floor?.seats || []}
+                getOptionLabel={(item) => item.code}
+                value={(floor?.seats || []).filter((item) => values.seat_ids.includes(item.id))}
+                onChange={(event, chosen) => setField('seat_ids', chosen.slice(0, SEATS_MAX).map((item) => item.id))}
                 disabled={submitting || !floor}
-                helperText={errors.seat_id || 'Leave empty for shared areas'}
-              >
-                <MenuItem value="">No specific seat</MenuItem>
-                {(floor?.seats || []).map((item) => <MenuItem key={item.id} value={item.id}>{item.code}</MenuItem>)}
-              </TextField>
+                limitTags={6}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Seats (optional)"
+                    error={Boolean(errors.seat_ids || errors.seat_id)}
+                    helperText={errors.seat_ids || errors.seat_id || 'Pick one or more, or leave empty for shared areas'}
+                  />
+                )}
+              />
             </Grid>
           </Grid>
 
-          <SimilarIncidentsWarning issueType={values.issue_type} floorId={values.floor_id} seatId={values.seat_id} />
+          <SimilarIncidentsWarning issueType={values.issue_type} floorId={values.floor_id} seatId={values.seat_ids[0] || ''} />
 
           <Stack direction="row" spacing={1.5} sx={{ justifyContent: 'flex-end' }}>
             <Button onClick={() => navigate(-1)} disabled={submitting}>Cancel</Button>

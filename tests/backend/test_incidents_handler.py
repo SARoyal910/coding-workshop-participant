@@ -88,7 +88,7 @@ def incidents(load_service, monkeypatch):
     monkeypatch.setattr(repo, "void", lambda *args: state.writes.append("void") or state.update_succeeds)
     monkeypatch.setattr(repo, "add_work_log", lambda *args: state.writes.append("add_work_log"))
     # Read-only lookups used when a successful response renders the full ticket.
-    for name in ("get_notes", "get_events", "get_requests", "get_work_logs", "get_acks"):
+    for name in ("get_notes", "get_events", "get_requests", "get_work_logs", "get_acks", "get_seats"):
         monkeypatch.setattr(repo, name, lambda incident_id: [])
     return state
 
@@ -511,3 +511,41 @@ def test_site_alerts_are_listed_for_every_role(incidents, monkeypatch, user):
     monkeypatch.setattr(incidents.repository, "list_site_alerts", lambda: [alert])
     status, body = call(incidents, "GET", "/api/incidents/alerts", user)
     assert (status, body) == (200, {"items": [alert]})
+
+
+# ---------- several seats in one report ----------
+
+MULTI_SEAT_REPORT = {
+    "title": "Monitors flicker", "description": "Whole row.", "category": "IT", "issue_type": "Monitor",
+    "building_id": 1, "floor_id": 1,
+}
+
+
+def test_seat_id_and_seat_ids_together_is_400(incidents):
+    """A report names its seats one way or the other."""
+    status, body = call(incidents, "POST", "/api/incidents", REPORTER,
+                        {**MULTI_SEAT_REPORT, "seat_id": 5, "seat_ids": [5, 6]})
+    assert status == 400
+    assert body["details"]["seat_ids"] == "Send seat_id or seat_ids, not both"
+
+
+def test_seats_on_another_floor_are_400(incidents, monkeypatch):
+    """Every chosen seat must be on the chosen floor."""
+    monkeypatch.setattr(incidents.repository, "floor_in_building", lambda floor_id, building_id: True)
+    monkeypatch.setattr(incidents.repository, "seats_on_floor", lambda seat_ids, floor_id: False)
+    status, body = call(incidents, "POST", "/api/incidents", REPORTER, {**MULTI_SEAT_REPORT, "seat_ids": [5, 99]})
+    assert (status, body["details"]) == (400, {"seat_ids": "Every seat must be on this floor"})
+
+
+def test_several_seats_are_recorded_with_the_first_as_main_seat(incidents, monkeypatch):
+    """The first seat goes on the ticket; all of them go in incident_seats."""
+    saved = {}
+    repo = incidents.repository
+    monkeypatch.setattr(repo, "floor_in_building", lambda floor_id, building_id: True)
+    monkeypatch.setattr(repo, "seats_on_floor", lambda seat_ids, floor_id: True)
+    monkeypatch.setattr(repo, "seat_on_floor", lambda seat_id, floor_id: True)
+    monkeypatch.setattr(repo, "create_incident", lambda fields, reporter_id: saved.update(fields) or INCIDENT_ID)
+    monkeypatch.setattr(repo, "add_seats", lambda incident_id, seat_ids: saved.update(all_seats=seat_ids))
+    status, _ = call(incidents, "POST", "/api/incidents", REPORTER, {**MULTI_SEAT_REPORT, "seat_ids": [7, 5, 7]})
+    assert status == 201
+    assert (saved["seat_id"], saved["all_seats"]) == (7, [7, 5])

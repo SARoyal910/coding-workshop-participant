@@ -115,6 +115,30 @@ def get_int(data: dict, field: str, errors: dict, required: bool = True, minimum
     return value
 
 
+def get_id_list(data: dict, field: str, errors: dict, max_items: int) -> list[int]:
+    """
+    Read an optional list of distinct ids (e.g. several seats). Missing or
+    empty gives []. Duplicates are dropped, keeping the first occurrence.
+    """
+    value = data.get(field)
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        errors[field] = "Must be a list of ids"
+        return []
+    ids: list[int] = []
+    for item in value:
+        if not isinstance(item, int) or isinstance(item, bool) or item < 1:
+            errors[field] = "Must be a list of ids"
+            return []
+        if item not in ids:
+            ids.append(item)
+    if len(ids) > max_items:
+        errors[field] = f"Choose at most {max_items}"
+        return []
+    return ids
+
+
 def get_number(data: dict, field: str, errors: dict, required: bool = True) -> float | None:
     """Read a JSON number (int or float, not a boolean or string)."""
     value = data.get(field)

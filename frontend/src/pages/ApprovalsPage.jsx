@@ -3,6 +3,7 @@ import PropTypes from 'prop-types';
 import { Link as RouterLink, useSearchParams } from 'react-router-dom';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
+import Checkbox from '@mui/material/Checkbox';
 import Chip from '@mui/material/Chip';
 import Divider from '@mui/material/Divider';
 import Link from '@mui/material/Link';
@@ -20,6 +21,7 @@ import useApiData from '../hooks/useApiData';
 import useNotify from '../hooks/useNotify';
 import { incidentsApi } from '../services/api';
 import { REQUEST_LABELS, formatDateTime } from '../constants';
+import { bulkSummary, runBulk } from '../bulk';
 
 const PAGE_SIZE = 25;
 
@@ -48,14 +50,22 @@ const requestShape = PropTypes.shape({
 });
 
 /**
- * One pending request with Approve / Reject buttons.
- * @param {{request: Object, onDecide: function(Object, string): void}} props
+ * One pending request with a select box and Approve / Reject buttons.
+ * @param {{request: Object, selected: boolean, onSelect: function(): void,
+ *   onDecide: function(Object, string): void}} props
  * @returns {JSX.Element}
  */
-function RequestItem({ request, onDecide }) {
+function RequestItem({
+  request, selected, onSelect, onDecide,
+}) {
   return (
-    <Box sx={{ p: 2 }}>
-      <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ justifyContent: 'space-between', alignItems: { md: 'center' } }}>
+    <Stack direction="row" spacing={1} sx={{ p: 2, pl: 1, alignItems: 'flex-start' }}>
+      <Checkbox
+        checked={selected}
+        onChange={onSelect}
+        slotProps={{ input: { 'aria-label': `Select request for #${request.incident_id}` } }}
+      />
+      <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ flexGrow: 1, minWidth: 0, justifyContent: 'space-between', alignItems: { md: 'center' } }}>
         <Box sx={{ minWidth: 0 }}>
           <Stack direction="row" spacing={1} sx={{ mb: 0.5, flexWrap: 'wrap', gap: 0.5 }}>
             <Chip size="small" color={request.type === 'reopen' ? 'warning' : 'info'} label={REQUEST_LABELS[request.type]} />
@@ -77,14 +87,40 @@ function RequestItem({ request, onDecide }) {
           <Button variant="outlined" color="error" onClick={() => onDecide(request, 'rejected')}>Reject</Button>
         </Stack>
       </Stack>
-    </Box>
+    </Stack>
   );
 }
 
 RequestItem.propTypes = {
   request: requestShape.isRequired,
+  selected: PropTypes.bool.isRequired,
+  onSelect: PropTypes.func.isRequired,
   onDecide: PropTypes.func.isRequired,
 };
+
+/**
+ * What the confirmation dialog says for one or several requests.
+ * @param {Object[]} requests
+ * @param {string} decision "approved" or "rejected"
+ * @returns {{title: string, description: string}}
+ */
+function describeDecision(requests, decision) {
+  const verb = decision === 'rejected' ? 'Reject' : 'Approve';
+  const types = new Set(requests.map((request) => request.type));
+  if (requests.length === 1) {
+    const [request] = requests;
+    return {
+      title: `${verb} ${REQUEST_LABELS[request.type].toLowerCase()} for #${request.incident_id}?`,
+      description: OUTCOMES[request.type][decision],
+    };
+  }
+  return {
+    title: `${verb} ${requests.length} requests?`,
+    description: types.size === 1
+      ? OUTCOMES[[...types][0]][decision]
+      : 'Each ticket follows its own request type: see the outcome on each ticket afterwards.',
+  };
+}
 
 /**
  * Admin approvals queue: close approvals (archive a finished ticket) and
@@ -104,25 +140,43 @@ export default function ApprovalsPage() {
   const {
     data, error, loading, reload,
   } = useApiData(loader);
-  // The request being decided and the decision: {request, decision}.
+  // The requests being decided and the decision: {requests, decision}.
   const [pending, setPending] = useState(null);
   const [saving, setSaving] = useState(false);
+  // Selected request ids. Ids no longer on the page (decided, or another page) are ignored.
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const items = data?.items || [];
+  const selected = items.filter((request) => selectedIds.has(request.id));
+
+  const toggle = (id) => setSelectedIds((current) => {
+    const next = new Set(current);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    return next;
+  });
+  const toggleAll = () => setSelectedIds(
+    selected.length === items.length ? new Set() : new Set(items.map((request) => request.id)),
+  );
 
   const handleConfirm = async ({ text }) => {
-    const { request, decision } = pending;
+    const { requests, decision } = pending;
     setSaving(true);
-    try {
-      await incidentsApi.decideRequest(request.incident_id, request.id, { decision, note: text || undefined });
-      notify(`${REQUEST_LABELS[request.type]} ${decision} for #${request.incident_id}`);
-      setPending(null);
-      reload();
-    } catch (err) {
-      // 409: someone else decided it, or the ticket changed. Reload shows the current queue.
-      notify(err.message, 'error', err.status === 409 ? { label: 'Refresh', onClick: reload } : null);
-      setPending(null);
-    } finally {
-      setSaving(false);
-    }
+    // A 409 means someone else decided it or the ticket changed; the reload shows the current queue.
+    const result = await runBulk(requests, (request) => incidentsApi.decideRequest(
+      request.incident_id,
+      request.id,
+      { decision, note: text || undefined },
+    ));
+    const { text: message, severity } = bulkSummary(
+      decision === 'rejected' ? 'Rejected requests on' : 'Approved requests on',
+      result,
+      (request) => `#${request.incident_id}`,
+    );
+    notify(message, severity);
+    setSaving(false);
+    setPending(null);
+    setSelectedIds(new Set());
+    reload();
   };
 
   let content;
@@ -131,15 +185,46 @@ export default function ApprovalsPage() {
   else if (!data.items.length) content = <EmptyState title="All caught up" message="There are no requests waiting for a decision." />;
   else {
     content = (
-      <Stack divider={<Divider />}>
-        {data.items.map((request) => (
-          <RequestItem key={request.id} request={request} onDecide={(item, decision) => setPending({ request: item, decision })} />
-        ))}
-      </Stack>
+      <>
+        <Stack direction="row" spacing={1} sx={{ px: 1, py: 1, alignItems: 'center', flexWrap: 'wrap', gap: 1, bgcolor: selected.length ? 'action.selected' : undefined }}>
+          <Checkbox
+            checked={selected.length === items.length}
+            indeterminate={selected.length > 0 && selected.length < items.length}
+            onChange={toggleAll}
+            slotProps={{ input: { 'aria-label': 'Select all requests on this page' } }}
+          />
+          <Typography variant="body2" sx={{ flexGrow: 1 }}>
+            {selected.length ? `${selected.length} selected` : 'Select requests to decide several at once'}
+          </Typography>
+          {selected.length > 0 && (
+            <>
+              <Button variant="contained" size="small" onClick={() => setPending({ requests: selected, decision: 'approved' })}>
+                {`Approve ${selected.length}`}
+              </Button>
+              <Button variant="outlined" color="error" size="small" onClick={() => setPending({ requests: selected, decision: 'rejected' })}>
+                {`Reject ${selected.length}`}
+              </Button>
+            </>
+          )}
+        </Stack>
+        <Divider />
+        <Stack divider={<Divider />}>
+          {items.map((request) => (
+            <RequestItem
+              key={request.id}
+              request={request}
+              selected={selectedIds.has(request.id)}
+              onSelect={() => toggle(request.id)}
+              onDecide={(item, decision) => setPending({ requests: [item], decision })}
+            />
+          ))}
+        </Stack>
+      </>
     );
   }
 
   const rejecting = pending?.decision === 'rejected';
+  const dialogText = pending ? describeDecision(pending.requests, pending.decision) : { title: '', description: '' };
   return (
     <Box>
       <Typography variant="h4" component="h1" sx={{ mb: 2 }}>Approvals</Typography>
@@ -169,11 +254,11 @@ export default function ApprovalsPage() {
 
       <ActionDialog
         open={Boolean(pending)}
-        title={pending ? `${rejecting ? 'Reject' : 'Approve'} ${REQUEST_LABELS[pending.request.type].toLowerCase()} for #${pending.request.incident_id}?` : ''}
-        description={pending ? OUTCOMES[pending.request.type][pending.decision] : ''}
+        title={dialogText.title}
+        description={dialogText.description}
         confirmLabel={rejecting ? 'Reject' : 'Approve'}
         danger={rejecting}
-        textLabel={rejecting ? 'Why? (shown on the ticket)' : 'Note (optional)'}
+        textLabel={rejecting ? 'Why? (shown on each ticket)' : 'Note (optional)'}
         textRequired={rejecting}
         submitting={saving}
         onCancel={() => setPending(null)}

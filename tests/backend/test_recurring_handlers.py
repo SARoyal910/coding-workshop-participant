@@ -41,7 +41,7 @@ def incidents(load_service, monkeypatch):
         "id": incident_id, "reporter_id": REPORTER["id"], "status": "open", "priority": "medium",
         "is_archived": False, "is_voided": False, "floor_number": 12, "seat_code": "12-A-034",
     })
-    for name in ("get_engineers", "get_notes", "get_work_logs", "get_requests", "get_acks", "get_events"):
+    for name in ("get_engineers", "get_notes", "get_work_logs", "get_requests", "get_acks", "get_events", "get_seats"):
         monkeypatch.setattr(repo, name, lambda incident_id: [])
     return svc.function.handler
 

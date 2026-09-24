@@ -26,7 +26,7 @@
 ## 3. Roles
 - employee: self-registers. admin: seeded. engineer: created by admin. "Supervisor" = admin.
 
-## 4. Data model (11 tables)
+## 4. Data model (13 tables)
 ```
 users(id, name, email unique, password_hash, role employee|engineer|admin, created_at)
 engineer_profiles(id, user_id, specialty facilities|IT|AV|security, shift day|swing|night, is_available, phone)
@@ -41,7 +41,120 @@ incident_requests(id, incident_id, type reopen|close_approval, reason, status pe
   requested_by, requested_at, decided_by, decided_at, decision_note)
 incident_notes(id, incident_id, author_id, body, created_at, edited_at)
 incident_work_logs(id, incident_id, engineer_id, work_date, hours, description, created_at, edited_at)
+incident_seats(incident_id, seat_id)  -- every seat of a report covering several seats; incidents.seat_id is the first
 incident_events(id, incident_id, actor_id, type, from_value, to_value, reason, created_at)  -- audit log for EVERY change
+```
+
+### Entity relationship diagram
+
+Key columns only; the list above has every column. GitHub renders this as a diagram.
+
+```mermaid
+erDiagram
+    users ||--o| engineer_profiles : "has (engineers)"
+    buildings ||--|{ floors : contains
+    floors ||--o{ seats : contains
+
+    users ||--o{ incidents : reports
+    buildings ||--o{ incidents : "located in"
+    floors ||--o{ incidents : "located on"
+    seats |o--o{ incidents : "main seat"
+    incidents ||--o{ incident_seats : "covers (several seats)"
+    seats ||--o{ incident_seats : "is covered by"
+
+    incidents ||--o{ incident_engineers : "worked by"
+    users ||--o{ incident_engineers : "works on"
+    incidents ||--o{ incident_acks : "committed to"
+    incidents ||--o{ incident_requests : "close / reopen"
+    incidents ||--o{ incident_notes : has
+    incidents ||--o{ incident_work_logs : has
+    incidents ||--o{ incident_events : "audit log"
+    users ||--o{ incident_events : acts
+
+    users {
+        int id PK
+        text email UK
+        text role "employee | engineer | admin"
+    }
+    engineer_profiles {
+        int id PK
+        int user_id FK, UK
+        text specialty
+        text shift "day | swing | night"
+        bool is_available
+    }
+    buildings {
+        int id PK
+        text name UK
+    }
+    floors {
+        int id PK
+        int building_id FK
+        int number
+    }
+    seats {
+        int id PK
+        int floor_id FK
+        text code
+    }
+    incidents {
+        int id PK
+        text category
+        text issue_type
+        text priority "low | medium | high | critical"
+        text status "open | in_progress | blocked | resolved | closed"
+        int reporter_id FK
+        int building_id FK
+        int floor_id FK
+        int seat_id FK "nullable, first seat"
+        bool is_archived
+        bool is_voided
+        int version "optimistic locking"
+    }
+    incident_seats {
+        int incident_id PK, FK
+        int seat_id PK, FK
+    }
+    incident_engineers {
+        int incident_id PK, FK
+        int engineer_id PK, FK
+        text role "primary | helper, one primary"
+    }
+    incident_acks {
+        int id PK
+        int incident_id FK
+        int engineer_id FK
+        timestamptz shift_ends_at
+    }
+    incident_requests {
+        int id PK
+        int incident_id FK
+        text type "reopen | close_approval"
+        text status "pending | approved | rejected"
+        int requested_by FK
+        int decided_by FK
+    }
+    incident_notes {
+        int id PK
+        int incident_id FK
+        int author_id FK
+        text body
+    }
+    incident_work_logs {
+        int id PK
+        int incident_id FK
+        int engineer_id FK
+        date work_date
+        numeric hours
+    }
+    incident_events {
+        int id PK
+        int incident_id FK
+        int actor_id FK
+        text type
+        text from_value
+        text to_value
+    }
 ```
 
 ## 5. Workflow (enforced in backend/incidents/rules.py, one dict)
@@ -67,6 +180,7 @@ Nothing is hard-deleted. Admin can void an erroneous incident (reason) -> hidden
 - Recurring issues: >= 3 incidents with same issue_type at same seat OR same floor within 30 days (constants). Shown on admin dashboard, as a badge on the incident, and as a warning on the create form (similar open incidents at the location).
   - Rule in `rules.recurring_level`: seat level if the seat alone reaches the threshold; floor level if the floor does across more than one seat. Voided incidents never count.
   - Windows: the dashboard and the create-form warning count the last 30 days; the badge on an incident counts incidents within 30 days before or after it, so every ticket in a pattern (including the first) is badged.
+  - Several seats: the report form accepts `seat_ids` (up to 20, all on the chosen floor). The first becomes `incidents.seat_id`, so lists, the duplicate warning and recurring checks use it; every seat is stored in `incident_seats` and shown on the ticket.
   - Create form: `GET /api/incidents/similar?issue_type=&floor_id=&seat_id=` returns open duplicates and the recurring pattern. Employees get counts but only their own tickets (same privacy rule as Visibility); the recurring badge on an employee's ticket shows the count, not the related tickets.
 - Shift stats: `on_shift_now` per engineer (`shifts.is_on_shift`), shift coverage on the admin dashboard (engineers / available / active tickets / missed per shift) and "My shift" on the engineer dashboard.
 - Visibility: employee sees only incidents they reported (anyone else's returns 404, so employees can't find out what exists). Engineer sees all active (non-archived, non-voided) incidents read-only, because collaboration is a core requirement (we track how often engineers help each other), plus archived ones they worked on; they can only change incidents they're on (otherwise 403), and any engineer can join any active incident. Engineer list tabs: My tickets (default), Unassigned, All active. Admin sees all, including voided.

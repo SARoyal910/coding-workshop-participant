@@ -129,6 +129,14 @@ CREATE TABLE IF NOT EXISTS incident_work_logs (
     edited_at   TIMESTAMPTZ
 );
 
+-- Every seat an incident affects when the reporter picks more than one.
+-- incidents.seat_id stays the first seat, so lists and recurring checks work unchanged.
+CREATE TABLE IF NOT EXISTS incident_seats (
+    incident_id INTEGER NOT NULL REFERENCES incidents(id),
+    seat_id     INTEGER NOT NULL REFERENCES seats(id),
+    PRIMARY KEY (incident_id, seat_id)
+);
+
 -- Audit log: one row for every change made to an incident.
 CREATE TABLE IF NOT EXISTS incident_events (
     id          SERIAL PRIMARY KEY,

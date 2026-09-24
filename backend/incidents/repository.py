@@ -25,6 +25,7 @@ LIST_SELECT = """
            i.created_at, i.updated_at, i.is_archived, i.version,
            b.name AS building_name, f.number AS floor_number, s.code AS seat_code,
            r.name AS reporter_name,
+           (SELECT count(*) FROM incident_seats x WHERE x.incident_id = i.id) AS seat_count,
            (SELECT u.name FROM incident_engineers ie JOIN users u ON u.id = ie.engineer_id
              WHERE ie.incident_id = i.id AND ie.role = 'primary') AS primary_engineer_name,
            count(*) OVER () AS total
@@ -160,6 +161,32 @@ def seat_on_floor(seat_id: int, floor_id: int) -> bool:
     return db.fetch_one(
         "SELECT 1 AS ok FROM seats WHERE id = %s AND floor_id = %s", (seat_id, floor_id)
     ) is not None
+
+
+def seats_on_floor(seat_ids: list[int], floor_id: int) -> bool:
+    """Return True if every seat exists and is on the floor."""
+    row = db.fetch_one(
+        "SELECT count(*) AS n FROM seats WHERE id = ANY(%s) AND floor_id = %s", (seat_ids, floor_id)
+    )
+    return row["n"] == len(seat_ids)
+
+
+def add_seats(incident_id: int, seat_ids: list[int]) -> None:
+    """Record every seat an incident affects."""
+    for seat_id in seat_ids:
+        db.execute(
+            "INSERT INTO incident_seats (incident_id, seat_id) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+            (incident_id, seat_id),
+        )
+
+
+def get_seats(incident_id: int) -> list[dict]:
+    """Return the seats recorded for a multi-seat incident, in code order ([] for a single seat)."""
+    return db.fetch_all(
+        "SELECT s.id, s.code FROM incident_seats x JOIN seats s ON s.id = x.seat_id"
+        " WHERE x.incident_id = %s ORDER BY s.code",
+        (incident_id,),
+    )
 
 
 def create_incident(fields: dict, reporter_id: int) -> int:

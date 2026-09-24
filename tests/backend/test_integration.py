@@ -480,6 +480,27 @@ def test_dashboards_match_the_rows_they_summarize(handlers):
         f"SELECT count(*) AS n {active} AND id NOT IN (SELECT incident_id FROM incident_engineers)")["n"]  # nosec B608
 
 
+def test_report_covering_several_seats(handlers):
+    """One report for a row of desks: all seats are returned on the ticket and counted in the list."""
+    incidents = handlers["incidents"]
+    token = login(handlers, "dana.whitfield@acme.inc", TEST_SEED_PASSWORD)
+    _, options = call(incidents, "GET", "/api/incidents/options", token=token)
+    floor = next(f for b in options["buildings"] for f in b["floors"] if len(f["seats"]) >= 3)
+    building = next(b for b in options["buildings"] if floor in b["floors"])
+    seat_ids = [seat["id"] for seat in floor["seats"][:3]]
+    status, ticket = call(incidents, "POST", "/api/incidents", {
+        "title": "Integration test monitors", "description": "Whole row flickers.", "category": "IT",
+        "issue_type": "Monitor", "building_id": building["id"], "floor_id": floor["id"], "seat_ids": seat_ids,
+    }, token)
+    assert status == 201, ticket
+    assert ticket["seat_id"] == seat_ids[0]
+    assert sorted(seat["id"] for seat in ticket["seats"]) == sorted(seat_ids)
+    response = incidents(make_event("GET", "/api/incidents", token=token, query={"q": "Integration test monitors"}))
+    assert response["statusCode"] == 200
+    page = response_json(response)
+    assert [item["seat_count"] for item in page["items"]] == [3]
+
+
 def test_critical_incident_is_a_site_alert(handlers):
     """
     Only an admin may report critical; while it is active every role sees it

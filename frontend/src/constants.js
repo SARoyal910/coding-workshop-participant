@@ -131,12 +131,21 @@ export function formatStatusAge(since, now = new Date()) {
 }
 
 /**
- * Format a location as "Building · Floor 2 · Seat 2-R-004".
- * @param {{building_name: string, floor_number: number, seat_code?: string}} incident
+ * Format a location as "Building · Floor 2 · Seat 2-R-004". A report covering
+ * several seats lists them all when they are known (the detail page), or
+ * shows the main seat and how many more (lists, which only have seat_count).
+ * @param {{building_name: string, floor_number: number, seat_code?: string,
+ *   seats?: {code: string}[], seat_count?: number}} incident
  * @returns {string}
  */
 export function formatLocation(incident) {
   const parts = [incident.building_name, `Floor ${incident.floor_number}`];
-  if (incident.seat_code) parts.push(`Seat ${incident.seat_code}`);
+  if (incident.seats?.length > 1) {
+    parts.push(`Seats ${incident.seats.map((seat) => seat.code).join(', ')}`);
+  } else if (incident.seat_count > 1) {
+    parts.push(`Seat ${incident.seat_code} +${incident.seat_count - 1} more`);
+  } else if (incident.seat_code) {
+    parts.push(`Seat ${incident.seat_code}`);
+  }
   return parts.join(' · ');
 }

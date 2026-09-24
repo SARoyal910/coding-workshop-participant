@@ -47,9 +47,9 @@ because CI has no database.
 
 | Suite | Result |
 | --- | --- |
-| Backend, unit + handler | 420 passed, 10 skipped (integration tests, opt-in) |
-| Backend, with `RUN_INTEGRATION=1` | 430 passed. `public` still has 16 users / 60 incidents afterwards |
-| Frontend (Vitest) | 35 passed in 6 files |
+| Backend, unit + handler | 462 passed, 12 skipped (integration tests, opt-in) |
+| Backend, with `RUN_INTEGRATION=1` | 474 passed. The `public` schema's row counts are unchanged afterwards |
+| Frontend (Vitest) | 52 passed in 9 files |
 
 Backend line coverage (pytest-cov):
 
@@ -62,11 +62,11 @@ Backend line coverage (pytest-cov):
 | `auth/service.py`, `auth/function.py` | 100% | 100% |
 | `dashboard/service.py`, `dashboard/function.py` | 100% | 100% |
 | `dashboard/repository.py` | 50% | 100% |
-| `incidents/service.py` | 62% | 68% |
-| `incidents/repository.py` | 37% | 58% |
+| `incidents/service.py` | 66% | 71% |
+| `incidents/repository.py` | 38% | 76% |
 | `engineers/service.py`, `engineers/function.py` | 75%, 88% | 100%, 100% |
 | `facilities/service.py`, `facilities/repository.py` | 51%, 27% | 81%, 68% |
-| **Total (`_shared`, `auth`, `incidents`, `dashboard`, `facilities`, `engineers`)** | **66%** | **86%** |
+| **Total (`_shared`, `auth`, `incidents`, `dashboard`, `facilities`, `engineers`)** | **67%** | **88%** |
 
 Frontend coverage is 19% of statements. The tested files are well covered:
 `StatusChip`, `WorkflowStepper` and `LoginPage` are at 100% of lines,
@@ -139,7 +139,7 @@ Frontend coverage is 19% of statements. The tested files are well covered:
   - Non-ASCII digits such as `"²"` in `?page=²` or `/api/incidents/²`. `str.isdigit()` is True for them, but `int()` rejects them. Fixed: `get_int` and `match_route` accept only ASCII `0-9` (`isascii()` + `isdecimal()`).
 - **A leak the CI run found (now fixed).** Step 8 made the ticket detail also look up recurring counts, and three handler tests didn't fake that call. On a machine with `POSTGRES_*` set they quietly ran read-only queries against that database; without it they returned 500. The fixture now fakes it, and `conftest.py` makes every non-integration test fail if it tries to open a connection.
 - **Coverage.**
-  - Backend: 86% with integration tests, 66% without (CI runs the 66% set).
+  - Backend: 88% with integration tests, 67% without (CI runs the 67% set).
   - Frontend: 19%.
   - The success paths of acknowledge, priority, request decisions and work-log edits are not tested.
   - The incident list, detail, form, register, dashboard, facilities, engineers and approvals pages have no tests (the new pages were checked in the browser, see below).

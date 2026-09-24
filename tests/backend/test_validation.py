@@ -343,3 +343,33 @@ def test_raise_if_errors_raises_with_all_details():
         validation.raise_if_errors({"a": "bad", "b": "worse"})
     assert caught.value.message == "Validation failed"
     assert caught.value.details == {"a": "bad", "b": "worse"}
+
+
+# ---------- get_id_list: several ids, e.g. seats ----------
+
+@pytest.mark.parametrize(("value", "expected"), [
+    (None, []),
+    ([], []),
+    ([3, 1, 3], [3, 1]),   # duplicates dropped, order kept
+])
+def test_get_id_list_accepts_lists_of_ids(value, expected):
+    """Missing and empty are fine; duplicates are dropped."""
+    errors: dict = {}
+    data = {} if value is None else {"ids": value}
+    assert validation.get_id_list(data, "ids", errors, 5) == expected
+    assert errors == {}
+
+
+@pytest.mark.parametrize("value", ["1,2", [1, "2"], [0], [True], [1.5], {"a": 1}])
+def test_get_id_list_rejects_non_ids(value):
+    """Only a JSON list of positive whole numbers is accepted."""
+    errors: dict = {}
+    assert validation.get_id_list({"ids": value}, "ids", errors, 5) == []
+    assert errors == {"ids": "Must be a list of ids"}
+
+
+def test_get_id_list_limit():
+    """More distinct ids than the limit is an error."""
+    errors: dict = {}
+    assert validation.get_id_list({"ids": [1, 2, 3]}, "ids", errors, 2) == []
+    assert errors == {"ids": "Choose at most 2"}

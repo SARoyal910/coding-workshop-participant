@@ -8,6 +8,7 @@ import Card from '@mui/material/Card';
 import Chip from '@mui/material/Chip';
 import CardActionArea from '@mui/material/CardActionArea';
 import CardContent from '@mui/material/CardContent';
+import Checkbox from '@mui/material/Checkbox';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import InputAdornment from '@mui/material/InputAdornment';
 import MenuItem from '@mui/material/MenuItem';
@@ -27,18 +28,22 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import AddIcon from '@mui/icons-material/Add';
 import SearchIcon from '@mui/icons-material/Search';
+import ActionDialog from '../components/ActionDialog';
 import PriorityChip from '../components/PriorityChip';
 import RecurringBadge from '../components/RecurringBadge';
 import StatusChip from '../components/StatusChip';
 import { EmptyState, ErrorState, LoadingState } from '../components/PageState';
 import useAuth from '../hooks/useAuth';
 import useApiData from '../hooks/useApiData';
+import useNotify from '../hooks/useNotify';
+import { bulkSummary, runBulk } from '../bulk';
 import { incidentsApi } from '../services/api';
 import {
   CATEGORY_LABELS, PRIORITY_LABELS, STATUS_LABELS, formatDateTime, formatLocation, formatStatusAge,
 } from '../constants';
 
 const PAGE_SIZES = [10, 25, 50];
+const PRIORITY_CHOICES = Object.entries(PRIORITY_LABELS).map(([value, label]) => ({ value, label }));
 const SEARCH_DELAY_MS = 400;
 
 const incidentShape = PropTypes.shape({
@@ -53,23 +58,38 @@ const incidentShape = PropTypes.shape({
   building_name: PropTypes.string.isRequired,
   floor_number: PropTypes.number.isRequired,
   seat_code: PropTypes.string,
+  seat_count: PropTypes.number,
   reporter_name: PropTypes.string.isRequired,
   primary_engineer_name: PropTypes.string,
   updated_at: PropTypes.string.isRequired,
+  version: PropTypes.number,
   status_since: PropTypes.string,
 });
 
 /**
- * Desktop view: one table row per incident.
- * @param {{items: Object[], onOpen: function(number): void}} props
+ * Desktop view: one table row per incident. With `selection`, each row gets a
+ * select box for bulk actions.
+ * @param {{items: Object[], onOpen: function(number): void,
+ *   selection?: {ids: Set<number>, toggle: function(number): void, toggleAll: function(): void}}} props
  * @returns {JSX.Element}
  */
-function IncidentTable({ items, onOpen }) {
+function IncidentTable({ items, onOpen, selection = null }) {
+  const selectedCount = selection ? items.filter((incident) => selection.ids.has(incident.id)).length : 0;
   return (
     <TableContainer>
       <Table size="small" aria-label="Incidents">
         <TableHead>
           <TableRow>
+            {selection && (
+              <TableCell padding="checkbox">
+                <Checkbox
+                  checked={selectedCount === items.length}
+                  indeterminate={selectedCount > 0 && selectedCount < items.length}
+                  onChange={selection.toggleAll}
+                  slotProps={{ input: { 'aria-label': 'Select all incidents on this page' } }}
+                />
+              </TableCell>
+            )}
             <TableCell>#</TableCell>
             <TableCell>Title</TableCell>
             <TableCell>Status</TableCell>
@@ -85,9 +105,19 @@ function IncidentTable({ items, onOpen }) {
             <TableRow
               key={incident.id}
               hover
+              selected={Boolean(selection?.ids.has(incident.id))}
               onClick={() => onOpen(incident.id)}
               sx={{ cursor: 'pointer' }}
             >
+              {selection && (
+                <TableCell padding="checkbox" onClick={(event) => event.stopPropagation()}>
+                  <Checkbox
+                    checked={selection.ids.has(incident.id)}
+                    onChange={() => selection.toggle(incident.id)}
+                    slotProps={{ input: { 'aria-label': `Select incident #${incident.id}` } }}
+                  />
+                </TableCell>
+              )}
               <TableCell>{incident.id}</TableCell>
               <TableCell sx={{ maxWidth: 260 }}>
                 {/* A real link keeps rows keyboard- and screen-reader-accessible. */}
@@ -137,6 +167,11 @@ function IncidentTable({ items, onOpen }) {
 IncidentTable.propTypes = {
   items: PropTypes.arrayOf(incidentShape).isRequired,
   onOpen: PropTypes.func.isRequired,
+  selection: PropTypes.shape({
+    ids: PropTypes.instanceOf(Set).isRequired,
+    toggle: PropTypes.func.isRequired,
+    toggleAll: PropTypes.func.isRequired,
+  }),
 };
 
 /**
@@ -186,6 +221,7 @@ IncidentCards.propTypes = {
  */
 export default function IncidentListPage() {
   const { user } = useAuth();
+  const { notify } = useNotify();
   const navigate = useNavigate();
   const isMobile = useMediaQuery({ maxWidth: 899 });
   const [params, setParams] = useSearchParams();
@@ -228,6 +264,39 @@ export default function IncidentListPage() {
     data, error, loading, reload,
   } = useApiData(loader);
 
+  // Bulk actions: engineers take or join tickets, admins change priority or void.
+  // Selected ids that are no longer on the page are ignored.
+  const canBulk = !isMobile && (isEngineer || user.role === 'admin') && params.get('archived') !== 'true';
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [bulkDialog, setBulkDialog] = useState(null);
+  const [bulkSaving, setBulkSaving] = useState(false);
+  const items = data?.items || [];
+  const selected = items.filter((incident) => selectedIds.has(incident.id));
+  const selection = canBulk ? {
+    ids: selectedIds,
+    toggle: (id) => setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    }),
+    toggleAll: () => setSelectedIds(
+      selected.length === items.length ? new Set() : new Set(items.map((incident) => incident.id)),
+    ),
+  } : null;
+
+  /** Run one call per selected ticket, report the outcome, then refresh. */
+  const runBulkAction = async (verb, call) => {
+    setBulkSaving(true);
+    const result = await runBulk(selected, call);
+    const { text, severity } = bulkSummary(verb, result, (incident) => `#${incident.id}`);
+    notify(text, severity);
+    setBulkSaving(false);
+    setBulkDialog(null);
+    setSelectedIds(new Set());
+    reload();
+  };
+
   const filterSelect = (name, label, labels) => (
     <TextField
       select
@@ -256,7 +325,7 @@ export default function IncidentListPage() {
       />
     );
   } else if (isMobile) content = <IncidentCards items={data.items} />;
-  else content = <IncidentTable items={data.items} onOpen={(id) => navigate(`/incidents/${id}`)} />;
+  else content = <IncidentTable items={data.items} onOpen={(id) => navigate(`/incidents/${id}`)} selection={selection} />;
 
   return (
     <Box>
@@ -317,6 +386,35 @@ export default function IncidentListPage() {
           </Box>
         )}
 
+        {selected.length > 0 && (
+          <Stack
+            direction="row"
+            spacing={1}
+            sx={{ px: 2, py: 1, alignItems: 'center', flexWrap: 'wrap', gap: 1, bgcolor: 'action.selected' }}
+            role="region"
+            aria-label="Bulk actions"
+          >
+            <Typography variant="body2" sx={{ flexGrow: 1, fontWeight: 600 }}>{`${selected.length} selected`}</Typography>
+            {isEngineer && (
+              <Button
+                variant="contained"
+                size="small"
+                disabled={bulkSaving}
+                onClick={() => runBulkAction('Took or joined', (incident) => incidentsApi.join(incident.id))}
+              >
+                Take / join selected
+              </Button>
+            )}
+            {user.role === 'admin' && (
+              <>
+                <Button variant="outlined" size="small" onClick={() => setBulkDialog('priority')}>Change priority</Button>
+                <Button variant="outlined" size="small" color="error" onClick={() => setBulkDialog('void')}>Void</Button>
+              </>
+            )}
+            <Button size="small" onClick={() => setSelectedIds(new Set())}>Clear</Button>
+          </Stack>
+        )}
+
         {content}
 
         {data && data.total > 0 && (
@@ -331,6 +429,39 @@ export default function IncidentListPage() {
           />
         )}
       </Paper>
+
+      <ActionDialog
+        open={bulkDialog === 'priority'}
+        title={`Change priority of ${selected.length} ${selected.length === 1 ? 'ticket' : 'tickets'}`}
+        description="The same priority and reason are applied to each ticket and shown in its history."
+        choiceLabel="Priority"
+        choices={PRIORITY_CHOICES}
+        initialChoice="high"
+        textLabel="Why?"
+        textRequired
+        confirmLabel="Change priority"
+        submitting={bulkSaving}
+        onCancel={() => setBulkDialog(null)}
+        onConfirm={({ choice, text }) => runBulkAction('Changed priority on', (incident) => incidentsApi.changePriority(
+          incident.id,
+          { version: incident.version, priority: choice, reason: text },
+        ))}
+      />
+      <ActionDialog
+        open={bulkDialog === 'void'}
+        title={`Void ${selected.length} ${selected.length === 1 ? 'ticket' : 'tickets'}?`}
+        description="Use this for duplicates or tickets raised by mistake. They disappear from lists and metrics but stay in the audit trail."
+        textLabel="Reason"
+        textRequired
+        confirmLabel="Void"
+        danger
+        submitting={bulkSaving}
+        onCancel={() => setBulkDialog(null)}
+        onConfirm={({ text }) => runBulkAction('Voided', (incident) => incidentsApi.void(
+          incident.id,
+          { version: incident.version, reason: text },
+        ))}
+      />
     </Box>
   );
 }
