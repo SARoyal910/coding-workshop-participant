@@ -230,7 +230,7 @@ export default function IncidentDetailPage() {
           <Typography variant="overline" color="text.secondary">{`Incident #${incident.id}`}</Typography>
           <Typography variant="h5" component="h1" sx={{ wordBreak: 'break-word' }}>{incident.title}</Typography>
           <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
-            <StatusChip status={incident.status} archived={incident.is_archived} size="medium" />
+            <StatusChip status={incident.status} archived={incident.is_archived} voided={incident.is_voided} size="medium" />
             <PriorityChip priority={incident.priority} size="medium" />
             <RecurringBadge level={incident.recurring?.level} size="medium" />
           </Stack>
@@ -289,10 +289,10 @@ export default function IncidentDetailPage() {
 
       {incident.is_voided && (
         <Alert severity="warning" sx={{ mb: 2 }}>
-          {`This ticket was voided: ${incident.void_reason}. It is hidden from lists and metrics.`}
+          {`This ticket was voided: ${incident.void_reason}. It is archived, read-only and left out of metrics.`}
         </Alert>
       )}
-      {incident.is_archived && (
+      {incident.is_archived && !incident.is_voided && (
         <Alert severity="info" sx={{ mb: 2 }}>This ticket is archived and read-only.</Alert>
       )}
       <RecurringAlert incident={incident} />

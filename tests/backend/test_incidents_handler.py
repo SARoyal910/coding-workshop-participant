@@ -174,10 +174,26 @@ def test_scope_all_is_accepted_for_engineers(incidents, monkeypatch):
     assert (status, body["total"]) == (200, 0)
 
 
-def test_voided_ticket_is_hidden_from_non_admins(incidents):
-    """Even the reporter gets 404 for a voided ticket."""
-    incidents.incident = incident_row(is_voided=True)
-    status, _ = call(incidents, "POST", STATUS_PATH, REPORTER, {"version": 3, "status": "closed"})
+def test_voided_ticket_is_in_the_reporters_archive_read_only(incidents):
+    """The reporter can open their voided ticket to see why, but can't change it."""
+    incidents.incident = incident_row(is_voided=True, is_archived=True, void_reason="Duplicate of #41")
+    status, body = call(incidents, "GET", f"/api/incidents/{INCIDENT_ID}", REPORTER)
+    assert (status, body["void_reason"]) == (200, "Duplicate of #41")
+    assert body["allowed_actions"]["transitions"] == []
+    assert not any(value for key, value in body["allowed_actions"].items() if key != "transitions")
+
+
+def test_voided_ticket_is_hidden_from_other_employees(incidents):
+    """Like any archived ticket, other employees get 404."""
+    incidents.incident = incident_row(is_voided=True, is_archived=True)
+    status, _ = call(incidents, "GET", f"/api/incidents/{INCIDENT_ID}", OTHER_EMPLOYEE)
+    assert status == 404
+
+
+def test_voided_before_archiving_rule_still_counts_as_archived(incidents):
+    """A ticket voided before voiding also archived is treated the same: engineers not on it get 404."""
+    incidents.incident = incident_row(is_voided=True, is_archived=False, priority="critical")
+    status, _ = call(incidents, "GET", f"/api/incidents/{INCIDENT_ID}", UNASSIGNED_ENGINEER)
     assert status == 404
 
 

@@ -67,17 +67,17 @@ def _load_visible(user: dict, incident_id: int) -> tuple[dict, set[int]]:
     Load an incident and its engineer ids, checking the user may see it.
 
     Raises:
-        NotFound: it does not exist, is voided (non-admins), or the user may not see it.
+        NotFound: it does not exist, or the user may not see it (voided tickets count as archived).
             404 rather than 403 so ids of other people's tickets are not revealed.
     """
     incident = repository.get_incident(incident_id)
     if incident is None:
         raise NotFound("Incident not found")
     engineer_ids = {engineer["id"] for engineer in repository.get_engineers(incident_id)}
-    if incident["is_voided"] and user["role"] != "admin":
-        raise NotFound("Incident not found")
-    site_alert = rules.is_site_alert(incident["priority"], incident["status"], incident["is_archived"])
-    if not rules.can_view(user, incident["reporter_id"], engineer_ids, incident["is_archived"], site_alert):
+    # A voided ticket is treated as archived: visible to the admin, its reporter and its engineers.
+    archived = incident["is_archived"] or incident["is_voided"]
+    site_alert = rules.is_site_alert(incident["priority"], incident["status"], archived)
+    if not rules.can_view(user, incident["reporter_id"], engineer_ids, archived, site_alert):
         raise NotFound("Incident not found")
     return incident, engineer_ids
 

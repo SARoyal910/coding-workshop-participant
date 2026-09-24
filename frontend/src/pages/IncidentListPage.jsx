@@ -54,6 +54,8 @@ const incidentShape = PropTypes.shape({
   category: PropTypes.string.isRequired,
   issue_type: PropTypes.string.isRequired,
   is_archived: PropTypes.bool,
+  is_voided: PropTypes.bool,
+  void_reason: PropTypes.string,
   recurring: PropTypes.oneOf(['seat', 'floor', null]),
   building_name: PropTypes.string.isRequired,
   floor_number: PropTypes.number.isRequired,
@@ -141,10 +143,15 @@ function IncidentTable({ items, onOpen, selection = null }) {
                 </Stack>
               </TableCell>
               <TableCell>
-                <StatusChip status={incident.status} archived={incident.is_archived} />
-                {!incident.is_archived && (
+                <StatusChip status={incident.status} archived={incident.is_archived} voided={incident.is_voided} />
+                {!incident.is_archived && !incident.is_voided && (
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5, whiteSpace: 'nowrap' }}>
                     {`for ${formatStatusAge(incident.status_since)}`}
+                  </Typography>
+                )}
+                {incident.is_voided && incident.void_reason && (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5, maxWidth: 180 }}>
+                    {incident.void_reason}
                   </Typography>
                 )}
               </TableCell>
@@ -187,7 +194,7 @@ function IncidentCards({ items }) {
           <CardActionArea component={RouterLink} to={`/incidents/${incident.id}`}>
             <CardContent>
               <Stack direction="row" spacing={1} sx={{ mb: 1 }}>
-                <StatusChip status={incident.status} archived={incident.is_archived} />
+                <StatusChip status={incident.status} archived={incident.is_archived} voided={incident.is_voided} />
                 <PriorityChip priority={incident.priority} />
                 <RecurringBadge level={incident.recurring} />
               </Stack>
@@ -198,7 +205,8 @@ function IncidentCards({ items }) {
               <Typography variant="caption" color="text.secondary">
                 {[
                   incident.primary_engineer_name || 'Unassigned',
-                  !incident.is_archived && `${STATUS_LABELS[incident.status]} for ${formatStatusAge(incident.status_since)}`,
+                  !incident.is_archived && !incident.is_voided && `${STATUS_LABELS[incident.status]} for ${formatStatusAge(incident.status_since)}`,
+                  incident.is_voided && `Voided: ${incident.void_reason}`,
                   `updated ${formatDateTime(incident.updated_at)}`,
                 ].filter(Boolean).join(' · ')}
               </Typography>

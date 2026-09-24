@@ -167,7 +167,7 @@ resolved -> closed (engineer on the ticket or admin; never the reporter) -> crea
   admin rejects (reason) -> back to resolved
 resolved|closed (not archived) -> reporter submits reopen request (reason) -> admin approves -> in_progress
 ```
-Nothing is hard-deleted. Admin can void an erroneous incident (reason) -> hidden from lists and metrics, kept in audit.
+Nothing is hard-deleted. Admin can void an erroneous incident (reason) -> it moves to the archive, shown as Voided with the reason (to the admin, its reporter and its engineers), and is left out of metrics, alerts and duplicate checks. Kept in audit.
 
 ## 6. Business rules
 - Priority: anyone reports low to high; only an admin can report critical (critical is shown site-wide) or change the priority later. Changes always log a priority_changed event (old, new, reason).
@@ -184,7 +184,7 @@ Nothing is hard-deleted. Admin can void an erroneous incident (reason) -> hidden
   - Several seats: the report form accepts `seat_ids` (up to 20, all on the chosen floor). The first becomes `incidents.seat_id`, so lists, the duplicate warning and recurring checks use it; every seat is stored in `incident_seats` and shown on the ticket.
   - Create form: `GET /api/incidents/similar?issue_type=&floor_id=&seat_id=` returns open duplicates and the recurring pattern. Employees get counts but only their own tickets (same privacy rule as Visibility); the recurring badge on an employee's ticket shows the count, not the related tickets.
 - Shift stats: `on_shift_now` per engineer (`shifts.is_on_shift`), shift coverage on the admin dashboard (engineers / available / active tickets / missed per shift) and "My shift" on the engineer dashboard.
-- Visibility: employee sees only incidents they reported (anyone else's returns 404, so employees can't find out what exists). Engineer sees all active (non-archived, non-voided) incidents read-only, because collaboration is a core requirement (we track how often engineers help each other), plus archived ones they worked on; they can only change incidents they're on (otherwise 403), and any engineer can join any active incident. Engineer list tabs: My tickets (default), Unassigned, All active. Admin sees all, including voided.
+- Visibility: employee sees only incidents they reported (anyone else's returns 404, so employees can't find out what exists). Engineer sees all active (non-archived, non-voided) incidents read-only, because collaboration is a core requirement (we track how often engineers help each other), plus archived ones they worked on; they can only change incidents they're on (otherwise 403), and any engineer can join any active incident. Engineer list tabs: My tickets (default), Unassigned, All active. Admin sees all. Voided incidents count as archived for visibility, so they appear in the Archived view.
 - Issue types (fixed list in code): IT: Wi-Fi, Monitor, Docking station, Printer, Badge reader. Facilities: HVAC, Lighting, Plumbing, Furniture, Cleaning. AV: Projector, Video conferencing, Speakers. Security: Door access, Camera, Lock.
 
 ## 7. Business questions -> features

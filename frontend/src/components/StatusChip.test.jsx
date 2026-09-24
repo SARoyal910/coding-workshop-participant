@@ -20,6 +20,12 @@ describe('StatusChip', () => {
     expect(screen.queryByText('Closed')).not.toBeInTheDocument();
   });
 
+  it('shows "Voided" for a voided ticket, even though it is also archived', () => {
+    render(<StatusChip status="open" archived voided />);
+    expect(screen.getByText('Voided')).toBeInTheDocument();
+    expect(screen.queryByText('Archived')).not.toBeInTheDocument();
+  });
+
   it('falls back to the raw value for an unknown status', () => {
     render(<StatusChip status="mystery" />);
     expect(screen.getByText('mystery')).toBeInTheDocument();

@@ -231,12 +231,22 @@ def test_join_reopen_and_void_edge_cases(handlers):
     status, body = call(incidents, "POST", f"{base}/requests", {"reason": "Seen it too"}, admin_token)
     assert (status, body["error"]) == (409, "A reopen request is already pending for this ticket")
 
-    # Only an admin may void; afterwards the reporter can no longer see it.
+    # Only an admin may void; the ticket then moves to the archive, marked voided with the reason.
     void_body = {"version": ticket["version"], "reason": "Duplicate report"}
     assert call(incidents, "DELETE", base, void_body, reporter_token)[0] == 403
     response = incidents(make_event("DELETE", base, void_body, admin_token))
     assert response["statusCode"] == 204
-    assert call(incidents, "GET", base, token=reporter_token)[0] == 404
+    status, voided = call(incidents, "GET", base, token=reporter_token)
+    assert (status, voided["is_voided"], voided["is_archived"], voided["void_reason"]) == (200, True, True, "Duplicate report")
+
+    def listed(token: str, archived: bool) -> list[int]:
+        query = {"archived": "true", "page_size": "100"} if archived else {"page_size": "100"}
+        response = incidents(make_event("GET", "/api/incidents", token=token, query=query))
+        return [item["id"] for item in response_json(response)["items"]]
+
+    for token in (reporter_token, admin_token):  # the reporter and the admin both find it in the archive
+        assert ticket["id"] in listed(token, archived=True)
+        assert ticket["id"] not in listed(token, archived=False)
 
 
 def test_facilities_constraints_and_delete_guard(handlers, load_service):

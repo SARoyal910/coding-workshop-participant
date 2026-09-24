@@ -23,7 +23,7 @@ LIST_SELECT = """
     SELECT COALESCE((SELECT max(e.created_at) FROM incident_events e
                       WHERE e.incident_id = i.id AND e.type = 'status_changed'), i.created_at) AS status_since,
            i.id, i.title, i.category, i.issue_type, i.priority, i.status,
-           i.created_at, i.updated_at, i.is_archived, i.version,
+           i.created_at, i.updated_at, i.is_archived, i.is_voided, i.void_reason, i.version,
            b.name AS building_name, f.number AS floor_number, s.code AS seat_code,
            r.name AS reporter_name,
            (SELECT count(*) FROM incident_seats x WHERE x.incident_id = i.id) AS seat_count,
@@ -51,13 +51,15 @@ def list_incidents(user: dict, filters: dict, page: int, page_size: int) -> tupl
 
     Only fixed SQL fragments are combined; every value is passed as a parameter.
     """
-    conditions = [sql.SQL("NOT i.is_voided"), sql.SQL("i.is_archived = %s")]
+    # Voided tickets belong to the archive (voiding also archives them; the OR
+    # covers any voided before that rule).
+    conditions = [sql.SQL("(i.is_archived OR i.is_voided) = %s")]
     params: list[Any] = [filters.get("archived", False)]
 
     # Visibility (see rules.can_view): engineers see every active ticket, and
     # archived ones only if they reported or worked on them.
     if user["role"] == "engineer":
-        conditions.append(sql.SQL(f"(NOT i.is_archived OR i.reporter_id = %s OR {ON_TICKET})"))
+        conditions.append(sql.SQL(f"(NOT (i.is_archived OR i.is_voided) OR i.reporter_id = %s OR {ON_TICKET})"))
         params += [user["id"], user["id"]]
     elif user["role"] != "admin":
         conditions.append(sql.SQL("i.reporter_id = %s"))
@@ -411,16 +413,18 @@ def update_priority(incident_id: int, version: int, priority: str) -> bool:
 
 def void(incident_id: int, version: int, reason: str, voided_by: int) -> bool:
     """
-    Void an erroneous incident: hidden from lists and metrics, kept for the audit trail.
+    Void an erroneous incident: it moves to the archive, marked voided with the
+    reason, and is left out of metrics. Kept for the audit trail.
 
     Returns:
         False if someone else changed the ticket first.
     """
     return db.execute(
         "UPDATE incidents SET is_voided = true, void_reason = %s, voided_by = %s,"
+        "       is_archived = true, archived_at = coalesce(archived_at, now()), archived_by = coalesce(archived_by, %s),"
         "       updated_at = now(), version = version + 1"
         " WHERE id = %s AND version = %s",
-        (reason, voided_by, incident_id, version),
+        (reason, voided_by, voided_by, incident_id, version),
     ) == 1
 
 
