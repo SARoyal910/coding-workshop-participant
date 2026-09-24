@@ -115,6 +115,22 @@ export function formatHours(hours) {
 }
 
 /**
+ * How long a ticket has been in its current status: "20 min", "5 hours", "1 day", "3 days".
+ * @param {string|null} since ISO timestamp of the last status change.
+ * @param {Date} [now]
+ * @returns {string|null}
+ */
+export function formatStatusAge(since, now = new Date()) {
+  if (!since) return null;
+  const minutes = Math.max(0, Math.floor((now - new Date(since)) / 60000));
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} ${hours === 1 ? 'hour' : 'hours'}`;
+  const days = Math.floor(hours / 24);
+  return `${days} ${days === 1 ? 'day' : 'days'}`;
+}
+
+/**
  * Format a location as "Building · Floor 2 · Seat 2-R-004".
  * @param {{building_name: string, floor_number: number, seat_code?: string}} incident
  * @returns {string}

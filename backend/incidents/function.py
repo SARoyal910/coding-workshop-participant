@@ -11,14 +11,16 @@ route needs a Bearer token.
                                     ?issue_type= &floor_id= &seat_id=
     GET  /requests               -> 200 {items, total, page, page_size}  admin: pending requests
                                     ?type=close_approval|reopen &page= &page_size=
+    GET  /alerts                 -> 200 {items}           active critical incidents (site alert, every role)
     GET  /{id}                   -> 200 incident          with engineers, notes, events, allowed_actions
     PUT  /{id}                   -> 200 incident          edit title/description (needs version)
+                                    reporter only while open with nothing pending
     POST /{id}/status            -> 200 incident          workflow transition (needs version)
-    POST /{id}/notes             -> 201 note
+    POST /{id}/notes             -> 201 note              admin or engineer on the ticket
     PUT  /{id}/notes/{note_id}   -> 200 note              author only
     POST /{id}/join              -> 200 incident          engineer joins (primary if first, else helper)
     POST /{id}/acknowledge       -> 200 incident          engineer commits for this shift
-    POST /{id}/priority          -> 200 incident          reporter or admin, with reason (needs version)
+    POST /{id}/priority          -> 200 incident          admin only, with reason (needs version)
     POST /{id}/requests          -> 200 incident          reporter asks to reopen, with reason
     POST /{id}/requests/{request_id}/decision -> 200 incident  admin approves or rejects
     DELETE /{id}                 -> 204                   admin voids (soft delete), with reason (needs version)
@@ -59,7 +61,7 @@ def create_incident(event: dict, user: dict, params: dict) -> dict:
 
 def form_options(event: dict, user: dict, params: dict) -> dict:
     """GET /options"""
-    return json_response(200, service.form_options())
+    return json_response(200, service.form_options(user))
 
 
 def similar_incidents(event: dict, user: dict, params: dict) -> dict:
@@ -124,6 +126,11 @@ def decide_request(event: dict, user: dict, params: dict) -> dict:
     )
 
 
+def list_site_alerts(event: dict, user: dict, params: dict) -> dict:
+    """GET /alerts"""
+    return json_response(200, service.list_site_alerts(user))
+
+
 def void_incident(event: dict, user: dict, params: dict) -> dict:
     """DELETE /{id}"""
     service.void_incident(user, params["id"], parse_json_body(event))
@@ -148,6 +155,7 @@ ROUTES = [
     ("GET", "/options", form_options),
     ("GET", "/similar", similar_incidents),
     ("GET", "/requests", list_pending_requests),
+    ("GET", "/alerts", list_site_alerts),
     ("GET", "/{id}", get_incident),
     ("PUT", "/{id}", update_incident),
     ("POST", "/{id}/status", change_status),

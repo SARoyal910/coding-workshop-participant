@@ -57,11 +57,12 @@ resolved|closed (not archived) -> reporter submits reopen request (reason) -> ad
 Nothing is hard-deleted. Admin can void an erroneous incident (reason) -> hidden from lists and metrics, kept in audit.
 
 ## 6. Business rules
-- Priority: reporter or admin can change it; always logs priority_changed event (old, new, reason).
+- Priority: anyone reports low to high; only an admin can report critical (critical is shown site-wide) or change the priority later. Changes always log a priority_changed event (old, new, reason).
 - Join: any engineer can join a non-archived ticket. If nobody has taken it, the engineer becomes primary ("Take this ticket"); if it is already taken, they join as a helper ("Join as helper"). The role is decided inside the INSERT and a partial unique index allows one primary per ticket, so two engineers taking it at the same moment give one primary and one helper. Logged. "Helped others" = count of helper rows.
 - Acknowledge: engineer commits to handling it this shift. shift_ends_at computed from engineer shift (day 07-15, swing 15-23, night 23-07). Sets incidents.acknowledged_at on first ack.
 - Missed shift commitment = shift_ends_at < now AND not resolved by shift_ends_at AND not moved to blocked (with reason) before shift_ends_at. Computed at query time.
-- Notes: the reporter, an admin or an engineer on the ticket can add (an engineer who only has read access must join first); shown with author name, role, timestamp. Only author edits; edits set edited_at and log old text to events. No deletion (append-only).
+- Notes: an admin or an engineer on the ticket can add, e.g. a repair note (an engineer who only has read access must join first; reporters don't add notes after reporting); shown with author name, role, timestamp. Only author edits; edits set edited_at and log old text to events. No deletion (append-only).
+- Editing the report: an admin any time; the reporter only while the ticket is open and no request is pending. While a close approval or reopen request waits for an admin, the reporter can't change anything on the ticket.
 - Work logs: only engineers on the ticket; hours in 0.25 steps, 0.25–12; work_date not in future and not before created_at; editable by author only (logged); locked once archived.
 - Recurring issues: >= 3 incidents with same issue_type at same seat OR same floor within 30 days (constants). Shown on admin dashboard, as a badge on the incident, and as a warning on the create form (similar open incidents at the location).
   - Rule in `rules.recurring_level`: seat level if the seat alone reaches the threshold; floor level if the floor does across more than one seat. Voided incidents never count.

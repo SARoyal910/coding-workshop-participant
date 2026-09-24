@@ -423,3 +423,91 @@ def test_void_without_reason_is_400(incidents):
     status, body = call(incidents, "DELETE", f"/api/incidents/{INCIDENT_ID}", ADMIN, {"version": 3})
     assert status == 400
     assert body["details"] == {"reason": "This field is required"}
+
+
+# ---------- what the reporter can still do after reporting ----------
+
+def test_reporter_cannot_add_notes(incidents):
+    """Only engineers on the ticket (or an admin) add notes once it is reported."""
+    status, body = call(incidents, "POST", f"/api/incidents/{INCIDENT_ID}/notes", REPORTER, {"body": "Any news?"})
+    assert (status, body["error"]) == (403, "Only the engineers working on this ticket can add notes")
+    assert "add_event" not in incidents.writes
+
+
+def test_reporter_cannot_edit_once_work_has_started(incidents):
+    """The report is locked once an engineer moves it on from open."""
+    incidents.incident = incident_row(status="in_progress")
+    status, body = call(incidents, "PUT", f"/api/incidents/{INCIDENT_ID}", REPORTER, {"title": "New", "version": 3})
+    assert status == 409
+    assert "update_details" not in incidents.writes
+
+
+def test_reporter_cannot_edit_while_a_request_is_pending(incidents, monkeypatch):
+    """Nothing the reporter does may change a ticket that is waiting for an admin."""
+    monkeypatch.setattr(incidents.repository, "get_requests",
+                        lambda incident_id: [{"type": "close_approval", "status": "pending"}])
+    status, _ = call(incidents, "PUT", f"/api/incidents/{INCIDENT_ID}", REPORTER, {"title": "New", "version": 3})
+    assert status == 409
+    assert "update_details" not in incidents.writes
+
+
+def test_reporter_cannot_request_reopen_while_close_is_pending(incidents, monkeypatch):
+    """A pending close approval blocks the reporter from filing a reopen request on top of it."""
+    incidents.incident = incident_row(status="closed")
+    monkeypatch.setattr(incidents.repository, "get_requests",
+                        lambda incident_id: [{"type": "close_approval", "status": "pending"}])
+    status, body = call(incidents, "POST", f"/api/incidents/{INCIDENT_ID}/requests", REPORTER, {"reason": "x"})
+    assert (status, body["error"]) == (409, "This ticket is waiting for an admin's approval")
+    assert ("create_request", "reopen") not in incidents.writes
+
+
+def test_reporter_cannot_change_priority(incidents):
+    """Priority changes are admin-only."""
+    status, body = call(incidents, "POST", f"/api/incidents/{INCIDENT_ID}/priority", REPORTER,
+                        {"priority": "high", "reason": "Urgent", "version": 3})
+    assert (status, body["error"]) == (403, "Only an admin can change the priority")
+
+
+def test_employee_cannot_report_critical(incidents):
+    """Critical incidents are shown site-wide, so only admins may report one."""
+    status, body = call(incidents, "POST", "/api/incidents", REPORTER, {
+        "title": "t", "description": "d", "category": "IT", "issue_type": "Wi-Fi",
+        "priority": "critical", "building_id": 1, "floor_id": 1,
+    })
+    assert status == 400
+    assert body["details"]["priority"] == "Only an admin can mark an incident critical"
+
+
+# ---------- site alerts: active critical incidents ----------
+
+def test_other_employee_sees_critical_ticket_read_only(incidents):
+    """Everyone can open an active critical incident, but gets no actions on it."""
+    incidents.incident = incident_row(priority="critical", status="in_progress")
+    status, body = call(incidents, "GET", f"/api/incidents/{INCIDENT_ID}", OTHER_EMPLOYEE)
+    assert status == 200
+    actions = body["allowed_actions"]
+    assert actions["transitions"] == []
+    assert not any(value for key, value in actions.items() if key != "transitions")
+
+
+def test_resolved_critical_ticket_is_hidden_again(incidents):
+    """Once it stops affecting the site, the normal visibility rule applies."""
+    incidents.incident = incident_row(priority="critical", status="resolved")
+    status, _ = call(incidents, "GET", f"/api/incidents/{INCIDENT_ID}", OTHER_EMPLOYEE)
+    assert status == 404
+
+
+def test_other_employee_cannot_note_a_critical_ticket(incidents):
+    """Seeing a site alert does not allow changing it."""
+    incidents.incident = incident_row(priority="critical")
+    status, _ = call(incidents, "POST", f"/api/incidents/{INCIDENT_ID}/notes", OTHER_EMPLOYEE, {"body": "Me too"})
+    assert status == 403
+
+
+@pytest.mark.parametrize("user", [OTHER_EMPLOYEE, UNASSIGNED_ENGINEER, ADMIN])
+def test_site_alerts_are_listed_for_every_role(incidents, monkeypatch, user):
+    """GET /alerts returns the active critical incidents to every role."""
+    alert = {"id": INCIDENT_ID, "title": "Fire alarm fault"}
+    monkeypatch.setattr(incidents.repository, "list_site_alerts", lambda: [alert])
+    status, body = call(incidents, "GET", "/api/incidents/alerts", user)
+    assert (status, body) == (200, {"items": [alert]})

@@ -46,34 +46,49 @@ def allowed_transitions(user: dict, status: str, reporter_id: int, engineer_ids:
     ]
 
 
-def can_view(user: dict, reporter_id: int, engineer_ids: set[int], is_archived: bool = False) -> bool:
+def is_site_alert(priority: str, status: str, is_archived: bool) -> bool:
+    """An active critical incident affects the whole site, so everyone may see it (read-only)."""
+    return priority == "critical" and status in ACTIVE_STATUSES and not is_archived
+
+
+def can_view(user: dict, reporter_id: int, engineer_ids: set[int], is_archived: bool = False,
+             site_alert: bool = False) -> bool:
     """
     Visibility (DESIGN.md section 6):
-    - employees see only tickets they reported (anything else is a 404, so they
-      can't find out what exists);
+    - everyone sees active critical incidents (site alerts), read-only unless
+      they have another role on the ticket;
+    - employees otherwise see only tickets they reported (anything else is a
+      404, so they can't find out what exists);
     - engineers see every active ticket read-only, because helping each other is
       a core requirement, plus archived tickets they reported or worked on;
     - admins see everything.
     Voided tickets are hidden from non-admins by the service layer.
     """
-    if user["role"] == "admin" or user["id"] == reporter_id:
+    if user["role"] == "admin" or user["id"] == reporter_id or site_alert:
         return True
     if user["role"] == "engineer":
         return user["id"] in engineer_ids or not is_archived
     return False
 
 
-def can_add_note(user: dict, reporter_id: int, engineer_ids: set[int]) -> bool:
+def can_add_note(user: dict, engineer_ids: set[int]) -> bool:
     """
-    The reporter, an admin, or an engineer on the ticket may add notes. Engineers
-    who can only see the ticket must join it first (otherwise 403).
+    An admin or an engineer on the ticket may add notes (for example a repair
+    note). Reporters don't add notes after reporting; engineers who can only
+    see the ticket must join it first (otherwise 403).
     """
-    return user["role"] == "admin" or user["id"] == reporter_id or user["id"] in engineer_ids
+    return user["role"] == "admin" or user["id"] in engineer_ids
 
 
-def can_edit_details(user: dict, reporter_id: int) -> bool:
-    """Only the reporter or an admin may edit a ticket's title and description."""
-    return user["role"] == "admin" or user["id"] == reporter_id
+def can_edit_details(user: dict, reporter_id: int, status: str, has_pending: bool) -> bool:
+    """
+    Admins may always edit a ticket's title and description. The reporter may
+    only while it is still open (no engineer has started) and nothing is
+    waiting for an admin's approval.
+    """
+    if user["role"] == "admin":
+        return True
+    return user["id"] == reporter_id and status == "open" and not has_pending
 
 
 # ---------- step 6: join, acknowledge, priority, requests, void, work logs ----------
@@ -97,14 +112,26 @@ def can_acknowledge(user: dict, status: str, engineer_ids: set[int]) -> bool:
     return user["role"] == "engineer" and user["id"] in engineer_ids and status in ACTIVE_STATUSES
 
 
-def can_change_priority(user: dict, reporter_id: int) -> bool:
-    """The reporter or an admin may change the priority (DESIGN.md section 6)."""
-    return user["role"] == "admin" or user["id"] == reporter_id
+def can_change_priority(user: dict) -> bool:
+    """Only admins change the priority once a ticket exists."""
+    return user["role"] == "admin"
 
 
-def can_request_reopen(user: dict, status: str, reporter_id: int) -> bool:
-    """The reporter (or an admin) may ask to reopen a resolved or closed ticket."""
-    return (user["role"] == "admin" or user["id"] == reporter_id) and status in REOPENABLE_STATUSES
+def can_report_priority(user: dict, priority: str) -> bool:
+    """Critical incidents are shown to everyone on site, so only admins may report one as critical."""
+    return priority != "critical" or user["role"] == "admin"
+
+
+def can_request_reopen(user: dict, status: str, reporter_id: int, has_pending: bool = False) -> bool:
+    """
+    The reporter (or an admin) may ask to reopen a resolved or closed ticket.
+    The reporter can't while another request is waiting for an admin.
+    """
+    if status not in REOPENABLE_STATUSES:
+        return False
+    if user["role"] == "admin":
+        return True
+    return user["id"] == reporter_id and not has_pending
 
 
 def can_decide_requests(user: dict) -> bool:

@@ -222,10 +222,13 @@ def test_join_reopen_and_void_edge_cases(handlers):
     }, engineer_token)
     assert (status, ticket["status"]) == (200, "resolved"), ticket
 
-    # One pending reopen request at a time (enforced by a unique index).
+    # One pending reopen request at a time. The reporter is stopped by the
+    # pending check; an admin gets past it and is stopped by the unique index.
     status, _ = call(incidents, "POST", f"{base}/requests", {"reason": "Still dropping"}, reporter_token)
     assert status == 200
     status, body = call(incidents, "POST", f"{base}/requests", {"reason": "Really still dropping"}, reporter_token)
+    assert (status, body["error"]) == (409, "This ticket is waiting for an admin's approval")
+    status, body = call(incidents, "POST", f"{base}/requests", {"reason": "Seen it too"}, admin_token)
     assert (status, body["error"]) == (409, "A reopen request is already pending for this ticket")
 
     # Only an admin may void; afterwards the reporter can no longer see it.
@@ -475,6 +478,49 @@ def test_dashboards_match_the_rows_they_summarize(handlers):
     assert own["me"]["id"] == engineer["id"]
     assert own["unassigned_pool"] == db.fetch_one(
         f"SELECT count(*) AS n {active} AND id NOT IN (SELECT incident_id FROM incident_engineers)")["n"]  # nosec B608
+
+
+def test_critical_incident_is_a_site_alert(handlers):
+    """
+    Only an admin may report critical; while it is active every role sees it
+    in GET /alerts and can open it read-only; once resolved it is private again.
+    """
+    incidents = handlers["incidents"]
+    admin_token = login(handlers, "admin@acme.inc", TEST_SEED_PASSWORD)
+    employee_token = login(handlers, "luis.romero@acme.inc", TEST_SEED_PASSWORD)
+    engineer_token = login(handlers, "tom.becker@acme.inc", TEST_SEED_PASSWORD)
+    _, options = call(incidents, "GET", "/api/incidents/options", token=employee_token)
+    assert "critical" not in options["priorities"]
+    building = options["buildings"][0]
+    report = {
+        "title": "Integration test door access", "description": "Badge readers are down.", "category": "security",
+        "issue_type": "Door access", "priority": "critical",
+        "building_id": building["id"], "floor_id": building["floors"][0]["id"],
+    }
+    assert call(incidents, "POST", "/api/incidents", report, employee_token)[0] == 400
+    status, ticket = call(incidents, "POST", "/api/incidents", report, admin_token)
+    assert status == 201, ticket
+    base = f"/api/incidents/{ticket['id']}"
+
+    for token in (employee_token, engineer_token):
+        status, alerts = call(incidents, "GET", "/api/incidents/alerts", token=token)
+        assert status == 200
+        assert ticket["id"] in [alert["id"] for alert in alerts["items"]]
+    status, seen = call(incidents, "GET", base, token=employee_token)
+    assert status == 200
+    assert seen["status_since"] and seen["allowed_actions"]["can_add_note"] is False
+
+    call(incidents, "POST", f"{base}/join", token=engineer_token)
+    status, ticket = call(incidents, "POST", f"{base}/status",
+                          {"version": seen["version"], "status": "in_progress"}, engineer_token)
+    assert status == 200, ticket
+    status, ticket = call(incidents, "POST", f"{base}/status", {
+        "version": ticket["version"], "status": "resolved", "resolution_note": "Restarted the badge controller",
+    }, engineer_token)
+    assert status == 200, ticket
+    _, alerts = call(incidents, "GET", "/api/incidents/alerts", token=employee_token)
+    assert ticket["id"] not in [alert["id"] for alert in alerts["items"]]
+    assert call(incidents, "GET", base, token=employee_token)[0] == 404
 
 
 def test_public_schema_untouched(test_schema):

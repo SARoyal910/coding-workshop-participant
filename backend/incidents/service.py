@@ -71,7 +71,8 @@ def _load_visible(user: dict, incident_id: int) -> tuple[dict, set[int]]:
     engineer_ids = {engineer["id"] for engineer in repository.get_engineers(incident_id)}
     if incident["is_voided"] and user["role"] != "admin":
         raise NotFound("Incident not found")
-    if not rules.can_view(user, incident["reporter_id"], engineer_ids, incident["is_archived"]):
+    site_alert = rules.is_site_alert(incident["priority"], incident["status"], incident["is_archived"])
+    if not rules.can_view(user, incident["reporter_id"], engineer_ids, incident["is_archived"], site_alert):
         raise NotFound("Incident not found")
     return incident, engineer_ids
 
@@ -82,6 +83,11 @@ def _ensure_changeable(incident: dict) -> None:
         raise Conflict("This ticket is archived and can no longer be changed")
     if incident["is_voided"]:
         raise Conflict("This ticket was voided and can no longer be changed")
+
+
+def _has_pending_request(incident_id: int) -> bool:
+    """True while a close approval or reopen request is waiting for an admin."""
+    return any(request["status"] == "pending" for request in repository.get_requests(incident_id))
 
 
 def _read_version(data: dict, errors: dict) -> int | None:
@@ -182,19 +188,25 @@ def get_incident(user: dict, incident_id: int) -> dict:
         "recurring": _recurring_detail(user, incident),
         "allowed_actions": {
             "transitions": [] if read_only else rules.allowed_transitions(user, status, reporter_id, engineer_ids),
-            "can_edit": allowed(rules.can_edit_details(user, reporter_id)),
-            "can_add_note": allowed(rules.can_add_note(user, reporter_id, engineer_ids)),
+            "can_edit": allowed(rules.can_edit_details(user, reporter_id, status, bool(pending_types))),
+            "can_add_note": allowed(rules.can_add_note(user, engineer_ids)),
             "can_join": allowed(rules.can_join(user, engineer_ids)),
             "can_acknowledge": allowed(rules.can_acknowledge(user, status, engineer_ids)),
-            "can_change_priority": allowed(rules.can_change_priority(user, reporter_id)),
+            "can_change_priority": allowed(rules.can_change_priority(user)),
             "can_request_reopen": allowed(
-                rules.can_request_reopen(user, status, reporter_id) and "reopen" not in pending_types
+                rules.can_request_reopen(user, status, reporter_id, bool(pending_types))
+                and "reopen" not in pending_types
             ),
             "can_decide_requests": allowed(rules.can_decide_requests(user) and bool(pending_types)),
             "can_void": allowed(rules.can_void(user)),
             "can_log_work": allowed(rules.can_log_work(user, engineer_ids)),
         },
     }
+
+
+def list_site_alerts(user: dict) -> dict:
+    """Active critical incidents, shown to every role as a site-wide alert banner."""
+    return {"items": repository.list_site_alerts()}
 
 
 def list_pending_requests(user: dict, params: dict) -> dict:
@@ -254,8 +266,11 @@ def similar_incidents(user: dict, params: dict) -> dict:
     }
 
 
-def form_options() -> dict:
-    """Everything the create form needs: categories -> issue types, priorities, and the location tree."""
+def form_options(user: dict) -> dict:
+    """
+    Everything the create form needs: categories -> issue types, the priorities
+    this user may report, and the location tree.
+    """
     buildings: dict[int, dict] = {}
     for row in repository.list_locations():
         building = buildings.setdefault(row["building_id"], {
@@ -271,7 +286,7 @@ def form_options() -> dict:
 
     return {
         "issue_types": {category: list(types) for category, types in ISSUE_TYPES.items()},
-        "priorities": list(PRIORITIES),
+        "priorities": [priority for priority in PRIORITIES if rules.can_report_priority(user, priority)],
         "buildings": list(buildings.values()),
     }
 
@@ -301,6 +316,8 @@ def create_incident(user: dict, data: dict) -> dict:
         fields["issue_type"] = get_choice(data, "issue_type", ISSUE_TYPES[fields["category"]], errors)
     elif "issue_type" not in data:
         errors["issue_type"] = "This field is required"
+    if fields["priority"] and not rules.can_report_priority(user, fields["priority"]):
+        errors["priority"] = "Only an admin can mark an incident critical"
     raise_if_errors(errors)
 
     # Referenced ids must exist and fit together (13.3).
@@ -318,16 +335,20 @@ def create_incident(user: dict, data: dict) -> dict:
 
 def update_incident(user: dict, incident_id: int, data: dict) -> dict:
     """
-    Edit the title and/or description. Only the reporter or an admin may do this.
+    Edit the title and/or description. An admin may do this any time; the
+    reporter only while the ticket is open and nothing is waiting for approval.
 
     Raises:
         Forbidden: not the reporter or an admin.
-        Conflict: archived/voided ticket, or it changed since the client loaded it.
+        Conflict: archived/voided ticket, work has started, a request is pending,
+            or it changed since the client loaded it.
     """
     incident, _ = _load_visible(user, incident_id)
-    if not rules.can_edit_details(user, incident["reporter_id"]):
+    if user["role"] != "admin" and user["id"] != incident["reporter_id"]:
         raise Forbidden("Only the reporter or an admin can edit this ticket")
     _ensure_changeable(incident)
+    if not rules.can_edit_details(user, incident["reporter_id"], incident["status"], _has_pending_request(incident_id)):
+        raise Conflict("This ticket can no longer be edited: work has started or it is waiting for approval")
 
     errors: dict[str, str] = {}
     reject_unknown_fields(data, UPDATE_FIELDS, errors)
@@ -404,13 +425,16 @@ def change_status(user: dict, incident_id: int, data: dict) -> dict:
 
 def add_note(user: dict, incident_id: int, data: dict) -> dict:
     """
-    Add a note (append-only). The reporter, an admin or an engineer on the
-    ticket may add one; an engineer who can only see it gets 403 (join first).
+    Add a note (append-only). An admin or an engineer on the ticket may add
+    one; an engineer who can only see it gets 403 (join first), and so does
+    the reporter.
     """
     incident, engineer_ids = _load_visible(user, incident_id)
     _ensure_changeable(incident)
-    if not rules.can_add_note(user, incident["reporter_id"], engineer_ids):
-        raise Forbidden("Join this ticket before adding notes")
+    if not rules.can_add_note(user, engineer_ids):
+        if user["role"] == "engineer":
+            raise Forbidden("Join this ticket before adding notes")
+        raise Forbidden("Only the engineers working on this ticket can add notes")
 
     errors: dict[str, str] = {}
     reject_unknown_fields(data, NOTE_FIELDS, errors)
@@ -518,17 +542,17 @@ def acknowledge_incident(user: dict, incident_id: int) -> dict:
 
 def change_priority(user: dict, incident_id: int, data: dict) -> dict:
     """
-    Change the priority (reporter or admin) with a reason; always logged.
+    Change the priority (admins only) with a reason; always logged.
     Setting the same priority again is a no-op with no event (13.4).
 
     Raises:
-        Forbidden: not the reporter or an admin.
+        Forbidden: not an admin.
         ValidationError: bad priority or missing reason.
         Conflict: archived/voided, or the ticket changed since it was loaded.
     """
     incident, _ = _load_visible(user, incident_id)
-    if not rules.can_change_priority(user, incident["reporter_id"]):
-        raise Forbidden("Only the reporter or an admin can change the priority")
+    if not rules.can_change_priority(user):
+        raise Forbidden("Only an admin can change the priority")
     _ensure_changeable(incident)
 
     errors: dict[str, str] = {}
@@ -554,14 +578,16 @@ def request_reopen(user: dict, incident_id: int, data: dict) -> dict:
     Raises:
         Forbidden: not the reporter or an admin.
         ValidationError: missing reason.
-        Conflict: archived/voided, not resolved or closed, or a reopen request is already pending.
+        Conflict: archived/voided, not resolved or closed, or a request is already pending.
     """
     incident, _ = _load_visible(user, incident_id)
     if user["role"] != "admin" and user["id"] != incident["reporter_id"]:
         raise Forbidden("Only the reporter can ask to reopen this ticket")
     _ensure_changeable(incident)
-    if not rules.can_request_reopen(user, incident["status"], incident["reporter_id"]):
+    if incident["status"] not in rules.REOPENABLE_STATUSES:
         raise Conflict("Only resolved or closed tickets can be reopened")
+    if not rules.can_request_reopen(user, incident["status"], incident["reporter_id"], _has_pending_request(incident_id)):
+        raise Conflict("This ticket is waiting for an admin's approval")
 
     errors: dict[str, str] = {}
     reject_unknown_fields(data, REOPEN_FIELDS, errors)

@@ -14,6 +14,7 @@ import ListItemButton from '@mui/material/ListItemButton';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import ListItemText from '@mui/material/ListItemText';
 import Toolbar from '@mui/material/Toolbar';
+import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import AddCircleOutlinedIcon from '@mui/icons-material/AddCircleOutlined';
 import ApartmentOutlinedIcon from '@mui/icons-material/ApartmentOutlined';
@@ -23,11 +24,24 @@ import DashboardOutlinedIcon from '@mui/icons-material/DashboardOutlined';
 import ListAltOutlinedIcon from '@mui/icons-material/ListAltOutlined';
 import LogoutIcon from '@mui/icons-material/Logout';
 import MenuIcon from '@mui/icons-material/Menu';
+import MenuOpenIcon from '@mui/icons-material/MenuOpen';
 import useAuth from '../hooks/useAuth';
 import { ROLE_LABELS } from '../constants';
 import ErrorBoundary from './ErrorBoundary';
+import SiteAlertBanner from './SiteAlertBanner';
 
 const DRAWER_WIDTH = 240;
+const COLLAPSED_WIDTH = 64;
+const COLLAPSED_KEY = 'navCollapsed';
+
+/** Read the remembered sidebar state; storage can be unavailable (private mode). */
+function readCollapsed() {
+  try {
+    return localStorage.getItem(COLLAPSED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
 
 /** Navigation entries; `roles` limits who sees an entry. */
 const NAV_ITEMS = [
@@ -40,25 +54,33 @@ const NAV_ITEMS = [
 ];
 
 /**
- * Side navigation, filtered to the user's role.
- * @param {{role: string, onNavigate?: function}} props
+ * Side navigation, filtered to the user's role. When collapsed, only icons
+ * are shown and each label moves into a tooltip and the accessible name.
+ * @param {{role: string, collapsed?: boolean, onNavigate?: function}} props
  * @returns {JSX.Element}
  */
-function NavList({ role, onNavigate }) {
+function NavList({ role, collapsed = false, onNavigate }) {
   return (
     <List component="nav" aria-label="Main navigation">
       {NAV_ITEMS.filter((item) => !item.roles || item.roles.includes(role)).map((item) => (
-        <ListItemButton
-          key={item.to}
-          component={NavLink}
-          to={item.to}
-          end={item.end}
-          onClick={onNavigate}
-          sx={{ mx: 1, borderRadius: 1, '&.active': { bgcolor: 'action.selected', fontWeight: 600 } }}
-        >
-          <ListItemIcon sx={{ minWidth: 40 }}>{item.icon}</ListItemIcon>
-          <ListItemText primary={item.label} />
-        </ListItemButton>
+        <Tooltip key={item.to} title={collapsed ? item.label : ''} placement="right">
+          <ListItemButton
+            component={NavLink}
+            to={item.to}
+            end={item.end}
+            onClick={onNavigate}
+            aria-label={collapsed ? item.label : undefined}
+            sx={{
+              mx: 1,
+              borderRadius: 1,
+              justifyContent: collapsed ? 'center' : 'flex-start',
+              '&.active': { bgcolor: 'action.selected', fontWeight: 600 },
+            }}
+          >
+            <ListItemIcon sx={{ minWidth: collapsed ? 0 : 40 }}>{item.icon}</ListItemIcon>
+            {!collapsed && <ListItemText primary={item.label} />}
+          </ListItemButton>
+        </Tooltip>
       ))}
     </List>
   );
@@ -66,12 +88,14 @@ function NavList({ role, onNavigate }) {
 
 NavList.propTypes = {
   role: PropTypes.string.isRequired,
+  collapsed: PropTypes.bool,
   onNavigate: PropTypes.func,
 };
 
 /**
- * App shell: top bar with the user and logout, and a navigation drawer that is
- * permanent on desktop and a hamburger menu on mobile.
+ * App shell: top bar with the user and logout, a site alert banner, and a
+ * navigation drawer that is permanent on desktop (collapsible to icons, and
+ * remembered) and a hamburger menu on mobile.
  * @returns {JSX.Element}
  */
 export default function Layout() {
@@ -79,6 +103,20 @@ export default function Layout() {
   const navigate = useNavigate();
   const isMobile = useMediaQuery({ maxWidth: 899 });
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(readCollapsed);
+  const narrow = !isMobile && collapsed;
+  const drawerWidth = narrow ? COLLAPSED_WIDTH : DRAWER_WIDTH;
+
+  const toggleCollapsed = () => {
+    setCollapsed((value) => {
+      try {
+        localStorage.setItem(COLLAPSED_KEY, value ? '0' : '1');
+      } catch {
+        // Not remembered, but the toggle still works.
+      }
+      return !value;
+    });
+  };
 
   const handleLogout = () => {
     logout();
@@ -88,7 +126,7 @@ export default function Layout() {
   const drawer = (
     <>
       <Toolbar />
-      <NavList role={user.role} onNavigate={isMobile ? () => setDrawerOpen(false) : undefined} />
+      <NavList role={user.role} collapsed={narrow} onNavigate={isMobile ? () => setDrawerOpen(false) : undefined} />
     </>
   );
 
@@ -96,9 +134,20 @@ export default function Layout() {
     <Box sx={{ display: 'flex', minHeight: '100vh' }}>
       <AppBar position="fixed" sx={{ zIndex: (theme) => theme.zIndex.drawer + 1 }}>
         <Toolbar>
-          {isMobile && (
+          {isMobile ? (
             <IconButton color="inherit" edge="start" aria-label="Open menu" onClick={() => setDrawerOpen(true)} sx={{ mr: 1 }}>
               <MenuIcon />
+            </IconButton>
+          ) : (
+            <IconButton
+              color="inherit"
+              edge="start"
+              aria-label={collapsed ? 'Expand menu' : 'Collapse menu'}
+              aria-expanded={!collapsed}
+              onClick={toggleCollapsed}
+              sx={{ mr: 1 }}
+            >
+              {collapsed ? <MenuIcon /> : <MenuOpenIcon />}
             </IconButton>
           )}
           <Typography variant="h6" component="div" sx={{ flexGrow: 1 }} noWrap>
@@ -129,9 +178,15 @@ export default function Layout() {
         open={isMobile ? drawerOpen : true}
         onClose={() => setDrawerOpen(false)}
         sx={{
-          width: isMobile ? undefined : DRAWER_WIDTH,
+          width: isMobile ? undefined : drawerWidth,
           flexShrink: 0,
-          '& .MuiDrawer-paper': { width: DRAWER_WIDTH, boxSizing: 'border-box' },
+          transition: (theme) => theme.transitions.create('width'),
+          '& .MuiDrawer-paper': {
+            width: isMobile ? DRAWER_WIDTH : drawerWidth,
+            boxSizing: 'border-box',
+            overflowX: 'hidden',
+            transition: (theme) => theme.transitions.create('width'),
+          },
         }}
       >
         {drawer}
@@ -139,6 +194,7 @@ export default function Layout() {
 
       <Box component="main" sx={{ flexGrow: 1, minWidth: 0, p: { xs: 2, md: 3 } }}>
         <Toolbar />
+        <SiteAlertBanner />
         <ErrorBoundary>
           <Outlet />
         </ErrorBoundary>

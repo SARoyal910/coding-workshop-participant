@@ -33,7 +33,8 @@ import useNotify from '../hooks/useNotify';
 import useApiData from '../hooks/useApiData';
 import { incidentsApi } from '../services/api';
 import {
-  CATEGORY_LABELS, PRIORITY_LABELS, REQUEST_LABELS, TRANSITION_LABELS, formatDateTime, formatLocation,
+  CATEGORY_LABELS, PRIORITY_LABELS, REQUEST_LABELS, STATUS_LABELS, TRANSITION_LABELS, formatDateTime, formatLocation,
+  formatStatusAge,
 } from '../constants';
 
 const PRIORITY_CHOICES = Object.entries(PRIORITY_LABELS).map(([value, label]) => ({ value, label }));
@@ -209,6 +210,11 @@ export default function IncidentDetailPage() {
             <PriorityChip priority={incident.priority} size="medium" />
             <RecurringBadge level={incident.recurring?.level} size="medium" />
           </Stack>
+          {!readOnly && (
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              {`${STATUS_LABELS[incident.status]} for ${formatStatusAge(incident.status_since)}`}
+            </Typography>
+          )}
         </Box>
         <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start', flexWrap: 'wrap', gap: 1 }}>
           {actions.can_edit && (

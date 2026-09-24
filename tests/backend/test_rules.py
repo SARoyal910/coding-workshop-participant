@@ -173,27 +173,31 @@ def test_can_view_defaults_to_active_ticket(rules):
 
 @pytest.mark.parametrize(("user", "expected"), [
     (ADMIN, True),
-    (REPORTER, True),
-    (ASSIGNED_ENGINEER, True),
+    (REPORTER, False),              # reporters don't add notes after reporting
+    (ASSIGNED_ENGINEER, True),      # e.g. a repair note
     (UNASSIGNED_ENGINEER, False),   # can see the ticket, but must join before adding notes
     (OTHER_EMPLOYEE, False),
 ])
 def test_can_add_note(rules, user, expected):
-    """The reporter, an admin, or an engineer on the ticket may add notes."""
-    assert rules.can_add_note(user, REPORTER_ID, ON_TICKET) is expected
+    """An admin or an engineer on the ticket may add notes."""
+    assert rules.can_add_note(user, ON_TICKET) is expected
 
 
 # ---------- can_edit_details: who edits title/description ----------
 
-@pytest.mark.parametrize(("user", "expected"), [
-    (ADMIN, True),
-    (REPORTER, True),
-    (OTHER_EMPLOYEE, False),
-    (ASSIGNED_ENGINEER, False),  # engineers add notes, they don't rewrite the report
+@pytest.mark.parametrize(("user", "status", "has_pending", "expected"), [
+    (ADMIN, "open", False, True),
+    (ADMIN, "in_progress", True, True),         # admins may always edit
+    (REPORTER, "open", False, True),
+    (REPORTER, "in_progress", False, False),    # locked once work has started
+    (REPORTER, "resolved", True, False),        # locked while waiting for approval
+    (REPORTER, "open", True, False),
+    (OTHER_EMPLOYEE, "open", False, False),
+    (ASSIGNED_ENGINEER, "open", False, False),  # engineers add notes, they don't rewrite the report
 ])
-def test_can_edit_details(rules, user, expected):
-    """Only the reporter or an admin may edit the title and description."""
-    assert rules.can_edit_details(user, REPORTER_ID) is expected
+def test_can_edit_details(rules, user, status, has_pending, expected):
+    """Admins may always edit; the reporter only while open with nothing pending."""
+    assert rules.can_edit_details(user, REPORTER_ID, status, has_pending) is expected
 
 
 
@@ -226,11 +230,22 @@ def test_can_acknowledge(rules, user, status, expected):
 
 
 @pytest.mark.parametrize(("user", "expected"), [
-    (ADMIN, True), (REPORTER, True), (OTHER_EMPLOYEE, False), (ASSIGNED_ENGINEER, False),
+    (ADMIN, True), (REPORTER, False), (OTHER_EMPLOYEE, False), (ASSIGNED_ENGINEER, False),
 ])
 def test_can_change_priority(rules, user, expected):
-    """The reporter or an admin may change the priority."""
-    assert rules.can_change_priority(user, REPORTER_ID) is expected
+    """Only admins change the priority of an existing ticket."""
+    assert rules.can_change_priority(user) is expected
+
+
+@pytest.mark.parametrize(("user", "priority", "expected"), [
+    (REPORTER, "high", True),
+    (REPORTER, "critical", False),      # critical is shown site-wide, so admins decide
+    (ASSIGNED_ENGINEER, "critical", False),
+    (ADMIN, "critical", True),
+])
+def test_can_report_priority(rules, user, priority, expected):
+    """Anyone may report low to high; only admins may report critical."""
+    assert rules.can_report_priority(user, priority) is expected
 
 
 @pytest.mark.parametrize(("user", "status", "expected"), [
@@ -245,6 +260,12 @@ def test_can_change_priority(rules, user, expected):
 def test_can_request_reopen(rules, user, status, expected):
     """The reporter (or an admin) may ask to reopen a resolved or closed ticket."""
     assert rules.can_request_reopen(user, status, REPORTER_ID) is expected
+
+
+@pytest.mark.parametrize(("user", "expected"), [(REPORTER, False), (ADMIN, True)])
+def test_can_request_reopen_while_pending(rules, user, expected):
+    """The reporter can't ask while another request waits for an admin; the admin still can."""
+    assert rules.can_request_reopen(user, "closed", REPORTER_ID, has_pending=True) is expected
 
 
 @pytest.mark.parametrize("check", ["can_decide_requests", "can_void"])
@@ -310,3 +331,24 @@ def test_hours_error_rejects_nan(rules):
 def test_recurring_level_threshold_boundaries(rules, seat_count, floor_count, floor_seats, expected):
     """At least 3 of the same issue type at a seat, or on a floor across more than one seat."""
     assert rules.recurring_level(seat_count, floor_count, floor_seats, threshold=3) == expected
+
+
+# ---------- site alerts: active critical incidents ----------
+
+@pytest.mark.parametrize(("priority", "status", "is_archived", "expected"), [
+    ("critical", "open", False, True),
+    ("critical", "in_progress", False, True),
+    ("critical", "blocked", False, True),
+    ("critical", "resolved", False, False),   # no longer affecting the site
+    ("critical", "open", True, False),
+    ("high", "open", False, False),
+])
+def test_is_site_alert(rules, priority, status, is_archived, expected):
+    """Only active, non-archived critical incidents are site alerts."""
+    assert rules.is_site_alert(priority, status, is_archived) is expected
+
+
+def test_everyone_can_view_a_site_alert(rules):
+    """Another employee's ticket is hidden, unless it is a site alert."""
+    assert rules.can_view(OTHER_EMPLOYEE, REPORTER_ID, ON_TICKET) is False
+    assert rules.can_view(OTHER_EMPLOYEE, REPORTER_ID, ON_TICKET, site_alert=True) is True

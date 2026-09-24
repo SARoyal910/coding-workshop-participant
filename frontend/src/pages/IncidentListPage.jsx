@@ -35,7 +35,7 @@ import useAuth from '../hooks/useAuth';
 import useApiData from '../hooks/useApiData';
 import { incidentsApi } from '../services/api';
 import {
-  CATEGORY_LABELS, PRIORITY_LABELS, STATUS_LABELS, formatDateTime, formatLocation,
+  CATEGORY_LABELS, PRIORITY_LABELS, STATUS_LABELS, formatDateTime, formatLocation, formatStatusAge,
 } from '../constants';
 
 const PAGE_SIZES = [10, 25, 50];
@@ -56,6 +56,7 @@ const incidentShape = PropTypes.shape({
   reporter_name: PropTypes.string.isRequired,
   primary_engineer_name: PropTypes.string,
   updated_at: PropTypes.string.isRequired,
+  status_since: PropTypes.string,
 });
 
 /**
@@ -109,7 +110,14 @@ function IncidentTable({ items, onOpen }) {
                   <RecurringBadge level={incident.recurring} />
                 </Stack>
               </TableCell>
-              <TableCell><StatusChip status={incident.status} archived={incident.is_archived} /></TableCell>
+              <TableCell>
+                <StatusChip status={incident.status} archived={incident.is_archived} />
+                {!incident.is_archived && (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5, whiteSpace: 'nowrap' }}>
+                    {`for ${formatStatusAge(incident.status_since)}`}
+                  </Typography>
+                )}
+              </TableCell>
               <TableCell><PriorityChip priority={incident.priority} /></TableCell>
               <TableCell>
                 <Typography variant="body2">{incident.issue_type}</Typography>
@@ -153,7 +161,11 @@ function IncidentCards({ items }) {
                 {`${incident.issue_type} · ${formatLocation(incident)}`}
               </Typography>
               <Typography variant="caption" color="text.secondary">
-                {`${incident.primary_engineer_name || 'Unassigned'} · updated ${formatDateTime(incident.updated_at)}`}
+                {[
+                  incident.primary_engineer_name || 'Unassigned',
+                  !incident.is_archived && `${STATUS_LABELS[incident.status]} for ${formatStatusAge(incident.status_since)}`,
+                  `updated ${formatDateTime(incident.updated_at)}`,
+                ].filter(Boolean).join(' · ')}
               </Typography>
             </CardContent>
           </CardActionArea>

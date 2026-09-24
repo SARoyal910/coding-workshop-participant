@@ -112,6 +112,7 @@ export const incidentsApi = {
   options: () => request('GET', '/incidents/options'),
   similar: (query) => request('GET', '/incidents/similar', { query }),
   pendingRequests: (query) => request('GET', '/incidents/requests', { query }),
+  alerts: () => request('GET', '/incidents/alerts'),
   create: (fields) => request('POST', '/incidents', { body: fields }),
   update: (id, fields) => request('PUT', `/incidents/${id}`, { body: fields }),
   changeStatus: (id, fields) => request('POST', `/incidents/${id}/status`, { body: fields }),
