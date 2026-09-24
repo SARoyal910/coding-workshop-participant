@@ -241,17 +241,6 @@ def test_can_change_priority(rules, user, expected):
     assert rules.can_change_priority(user, ON_TICKET) is expected
 
 
-@pytest.mark.parametrize(("user", "priority", "expected"), [
-    (REPORTER, "high", True),
-    (REPORTER, "critical", False),      # critical is shown site-wide, so admins decide
-    (ASSIGNED_ENGINEER, "critical", False),
-    (ADMIN, "critical", True),
-])
-def test_can_report_priority(rules, user, priority, expected):
-    """Anyone may report low to high; only admins may report critical."""
-    assert rules.can_report_priority(user, priority) is expected
-
-
 @pytest.mark.parametrize(("user", "status", "expected"), [
     (REPORTER, "resolved", True),
     (REPORTER, "closed", True),

@@ -295,11 +295,8 @@ def similar_incidents(user: dict, params: dict) -> dict:
     }
 
 
-def form_options(user: dict) -> dict:
-    """
-    Everything the create form needs: categories -> issue types, the priorities
-    this user may report, and the location tree.
-    """
+def form_options() -> dict:
+    """Everything the create form needs: categories -> issue types, priorities, and the location tree."""
     buildings: dict[int, dict] = {}
     for row in repository.list_locations():
         building = buildings.setdefault(row["building_id"], {
@@ -315,7 +312,7 @@ def form_options(user: dict) -> dict:
 
     return {
         "issue_types": {category: list(types) for category, types in ISSUE_TYPES.items()},
-        "priorities": [priority for priority in PRIORITIES if rules.can_report_priority(user, priority)],
+        "priorities": list(PRIORITIES),
         "buildings": list(buildings.values()),
     }
 
@@ -352,8 +349,6 @@ def create_incident(user: dict, data: dict) -> dict:
         fields["issue_type"] = get_choice(data, "issue_type", ISSUE_TYPES[fields["category"]], errors)
     elif "issue_type" not in data:
         errors["issue_type"] = "This field is required"
-    if fields["priority"] and not rules.can_report_priority(user, fields["priority"]):
-        errors["priority"] = "Only an admin can mark an incident critical"
     raise_if_errors(errors)
 
     # Referenced ids must exist and fit together (13.3).

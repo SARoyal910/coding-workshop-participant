@@ -689,23 +689,23 @@ def test_labor_hours_are_capped_at_12_a_day_across_tickets(handlers):
 
 def test_critical_incident_is_a_site_alert(handlers):
     """
-    Only an admin may report critical; while it is active every role sees it
-    in GET /alerts and can open it read-only; once resolved it is private again.
+    Anyone may report critical (an emergency can't wait for an admin); while it
+    is active every role sees it in GET /alerts and can open it read-only; once
+    resolved it is private again.
     """
     incidents = handlers["incidents"]
-    admin_token = login(handlers, "admin@acme.inc", TEST_SEED_PASSWORD)
+    reporter_token = login(handlers, "grace.kim@acme.inc", TEST_SEED_PASSWORD)
     employee_token = login(handlers, "luis.romero@acme.inc", TEST_SEED_PASSWORD)
     engineer_token = login(handlers, "tom.becker@acme.inc", TEST_SEED_PASSWORD)
     _, options = call(incidents, "GET", "/api/incidents/options", token=employee_token)
-    assert "critical" not in options["priorities"]
+    assert "critical" in options["priorities"]
     building = options["buildings"][0]
     report = {
         "title": "Integration test door access", "description": "Badge readers are down.", "category": "security",
         "issue_type": "Door access", "priority": "critical",
         "building_id": building["id"], "floor_id": building["floors"][0]["id"],
     }
-    assert call(incidents, "POST", "/api/incidents", report, employee_token)[0] == 400
-    status, ticket = call(incidents, "POST", "/api/incidents", report, admin_token)
+    status, ticket = call(incidents, "POST", "/api/incidents", report, reporter_token)
     assert status == 201, ticket
     base = f"/api/incidents/{ticket['id']}"
 

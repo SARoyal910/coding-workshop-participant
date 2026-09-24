@@ -216,6 +216,13 @@ export default function IncidentFormPage() {
             </Grid>
           </Grid>
 
+          {values.priority === 'critical' && (
+            <Alert severity="warning">
+              Critical alerts everyone on site with a red banner until it is resolved. Use it for safety risks or
+              outages that stop people working, not for one person&apos;s problem.
+            </Alert>
+          )}
+
           <SimilarIncidentsWarning issueType={values.issue_type} floorId={values.floor_id} seatId={values.seat_ids[0] || ''} />
 
           <Stack direction="row" spacing={1.5} sx={{ justifyContent: 'flex-end' }}>

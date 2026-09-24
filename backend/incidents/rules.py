@@ -115,14 +115,10 @@ def can_acknowledge(user: dict, status: str, engineer_ids: set[int]) -> bool:
 def can_change_priority(user: dict, engineer_ids: set[int]) -> bool:
     """
     An admin or an engineer on the ticket may change its priority, to any level.
-    (Reporting a new ticket as critical is still admin-only: can_report_priority.)
+    Anyone may report a new ticket at any priority, critical included, so an
+    emergency never waits for an admin.
     """
     return user["role"] == "admin" or (user["role"] == "engineer" and user["id"] in engineer_ids)
-
-
-def can_report_priority(user: dict, priority: str) -> bool:
-    """Critical incidents are shown to everyone on site, so only admins may report one as critical."""
-    return priority != "critical" or user["role"] == "admin"
 
 
 def can_request_reopen(user: dict, status: str, reporter_id: int, has_pending: bool = False) -> bool:

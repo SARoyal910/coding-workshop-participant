@@ -62,7 +62,7 @@ def create_incident(event: dict, user: dict, params: dict) -> dict:
 
 def form_options(event: dict, user: dict, params: dict) -> dict:
     """GET /options"""
-    return json_response(200, service.form_options(user))
+    return json_response(200, service.form_options())
 
 
 def similar_incidents(event: dict, user: dict, params: dict) -> dict:

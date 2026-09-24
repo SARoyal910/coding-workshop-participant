@@ -484,14 +484,14 @@ def test_reporter_cannot_change_priority(incidents):
     assert (status, body["error"]) == (403, "Only an admin or an engineer on this ticket can change the priority")
 
 
-def test_employee_cannot_report_critical(incidents):
-    """Critical incidents are shown site-wide, so only admins may report one."""
+def test_employee_can_report_critical(incidents):
+    """An emergency can't wait for an admin: anyone may report critical (the fake floor check then fails)."""
     status, body = call(incidents, "POST", "/api/incidents", REPORTER, {
         "title": "t", "description": "d", "category": "IT", "issue_type": "Wi-Fi",
         "priority": "critical", "building_id": 1, "floor_id": 1,
     })
     assert status == 400
-    assert body["details"]["priority"] == "Only an admin can mark an incident critical"
+    assert "priority" not in body["details"]  # only the location is rejected, not the priority
 
 
 # ---------- site alerts: active critical incidents ----------
