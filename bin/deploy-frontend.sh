@@ -149,8 +149,21 @@ if [ ! -f .env ] && [ -f $BUILD_DIR/.env.local ]; then
     mv -f $BUILD_DIR/.env.local $BUILD_DIR/.env
 fi
 
-# Upload built frontend to S3 (with deletion of old files)
-aws s3 sync $BUILD_DIR/ s3://$BUCKET_NAME/ --delete $AWS_ENDPOINT
+# Upload built frontend to S3, in an order and with cache headers that keep
+# browsers from mixing builds:
+# 1. assets/ holds content-hashed files (a new name for every change), so they
+#    can be cached for a year. Old builds' assets are kept, not deleted: a tab
+#    opened before this deploy can still load the pages it asks for.
+# 2. Other top-level files (e.g. vite.svg): no-cache; stale ones are removed.
+# 3. index.html last, with no-cache, so browsers always fetch the newest one
+#    and it never points at assets that aren't uploaded yet.
+aws s3 sync $BUILD_DIR/assets/ s3://$BUCKET_NAME/assets/ \
+    --cache-control "public, max-age=31536000, immutable" $AWS_ENDPOINT
+aws s3 sync $BUILD_DIR/ s3://$BUCKET_NAME/ --delete \
+    --exclude "assets/*" --exclude "index.html" \
+    --cache-control "no-cache" $AWS_ENDPOINT
+aws s3 cp $BUILD_DIR/index.html s3://$BUCKET_NAME/index.html \
+    --cache-control "no-cache" $AWS_ENDPOINT
 
 # Invalidate CloudFront cache for AWS deployments
 if [ "$ENVIRONMENT" = "aws" ]; then
