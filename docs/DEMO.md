@@ -92,6 +92,79 @@ New employees can also register themselves with any `@acme.inc` email.
 
 **Afterwards:** switch Priya back to available and check Tom is an engineer.
 
+## Run it yourself (local)
+
+Anyone can run the whole app on their own machine from this repo, with their own
+demo password. Tested on a fresh clone with PostgreSQL in Docker.
+
+You need: Git, Python 3.13, Node.js 22 or later, and PostgreSQL (Docker, a local
+install, or a free [Supabase](https://supabase.com) project).
+
+> The workshop's `README.md`, `backend/README.md` and `bin/start-dev.sh` describe a
+> LocalStack setup that this project does not use. Follow these steps instead.
+
+**1. Clone the repo**
+```sh
+git clone https://github.com/SARoyal910/coding-workshop-participant.git
+cd coding-workshop-participant
+```
+
+**2. Start PostgreSQL** (skip if you already have one)
+```sh
+docker run -d --name acme-db -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres:17
+```
+
+**3. Configure the backend**
+```sh
+cp backend/.env.sample backend/.env
+```
+Edit `backend/.env`:
+
+| Setting | Docker Postgres above | Supabase |
+| --- | --- | --- |
+| `POSTGRES_HOST` | `localhost` | the Session pooler host |
+| `POSTGRES_PORT` | `5432` | `5432` |
+| `POSTGRES_NAME` | `postgres` | `postgres` |
+| `POSTGRES_USER` | `postgres` | `postgres.<project-id>` |
+| `POSTGRES_PASS` | `postgres` | your database password |
+| `POSTGRES_SSLMODE` | `disable` | `require` |
+| `JWT_SECRET` | output of `python3 -c "import secrets; print(secrets.token_hex(32))"` | same |
+| `SEED_PASSWORD` | any password you choose; every demo account will use it | same |
+
+**4. Install and start the backend** (serves every service on http://localhost:8000)
+```sh
+python3 -m venv .venv
+.venv/bin/pip install -r backend/incidents/requirements.txt   # Windows: .venv\Scripts\pip
+.venv/bin/python backend/dev_server.py                         # Windows: .venv\Scripts\python
+```
+On the first request it creates all 13 tables and loads the demo data (60
+incidents, 1 admin, 5 engineers, 10 employees). Check it with
+`curl http://localhost:8000/api/auth/health`, which should return `{"status": "ok"}`.
+
+**5. Install and start the frontend** (in a second terminal)
+```sh
+cd frontend
+cp .env.sample .env.local        # already points at http://localhost:8000
+npm install
+npm run dev
+```
+
+**6. Open http://localhost:3000** and log in as `admin@acme.inc` (or any account
+in the table above) with the `SEED_PASSWORD` you chose. Then follow the
+walkthrough.
+
+**If a port is taken:** start the backend with `DEV_SERVER_PORT=8100` and set
+`VITE_API_URL=http://localhost:8100` in `frontend/.env.local`; run the frontend
+with `npm run dev -- --port 3100`; map Postgres with `-p 55432:5432` and set
+`POSTGRES_PORT=55432`.
+
+**Start over with fresh demo data:** `docker rm -f acme-db`, then repeat from step 2.
+
+**Deploying to AWS** uses the scripts in `bin/` and needs the workshop's
+credentials (event ID, participant ID and code) and the IAM roles the workshop
+account provides; see [DESIGN.md](DESIGN.md) section 14. It does not work
+unchanged in a personal AWS account.
+
 ## Things to know
 
 - Changes you make in the demo are real: they stay in the live database for the
