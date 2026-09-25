@@ -11,13 +11,13 @@
 
 ## 2. Services (names must not prefix each other; CloudFront routes /api/<name>*)
 - backend/_shared/ : db.py (connect, create tables if not exist, seed if users empty), auth.py, http.py (parse_path strips optional /api/<service> prefix since local proxy strips it and cloud does not; response helpers), validation.py
-- backend/auth/ : register (@acme.inc only, always role=employee), login, me
-- backend/incidents/ : incidents, notes, work logs, status, priority, join, acknowledge, requests (reopen/close approval), void
+- backend/auth/ : register (@acme.inc only, always role=employee), login, me, refresh; admin people management: GET /users (everyone, filter by role or search) and PUT /users/{id}/role
+- backend/incidents/ : incidents, notes, work logs, status, priority, join, acknowledge, assign/reassign (admin), requests (reopen/close approval), void, site alerts (GET /alerts: active critical incidents). The list filters by status, priority, category, building, search (title, description or #number), archived, engineer scope, and engineer_id (admin: every ticket an engineer is on or was reassigned off)
 - backend/facilities/ : buildings, floors, seats CRUD (admin only). Deleting a place with incidents -> 409; deleting an empty building/floor also deletes what is inside it, in one transaction
 - backend/engineers/ : list with stats (admin + engineers), create/edit (admin creates engineer users), availability toggle (admin, or the engineer themselves). No delete: tickets, work logs and the audit log point at engineers, so an admin marks them unavailable instead
 - backend/_shared/engineer_stats.py : the engineer workload query (incl. missed shift commitments), shared by dashboard and engineers so the definition lives in one place
 - Approvals queue: GET /api/incidents/requests (admin) lists pending close approvals and reopen requests, oldest first
-- backend/dashboard/ : role-specific metrics
+- backend/dashboard/ : role-specific metrics, including totals (total, active, archived, voided); GET /missed-shifts lists each missed shift commitment
 - backend/dev_server.py : local HTTP server on :8000 mapping /api/<service>/... to that service's handler with a Lambda Function URL-style event (for local dev without LocalStack)
 - Packaging: infra/lambda.tf zips backend/_shared into every Python service as `_shared/` (second `source_path` entry), so there are no copies to keep in sync. dev_server.py puts backend/ on sys.path instead.
 - Secrets: JWT_SECRET and SEED_PASSWORD reach Lambdas via infra/locals.tf env_vars; from TF_VAR_jwt_secret / TF_VAR_seed_password if set, otherwise generated once by Terraform (`terraform output -raw seed_password`).
@@ -49,7 +49,7 @@ incident_events(id, incident_id, actor_id, type, from_value, to_value, reason, c
 
 ### Entity relationship diagram
 
-Key columns only; the list above has every column. GitHub renders this as a diagram.
+Key columns only; the list above has every column. GitHub renders this as a diagram; the same diagram is also exported as [erd.png](erd.png) and [erd.pdf](erd.pdf) for viewing outside GitHub.
 
 ```mermaid
 erDiagram
@@ -72,6 +72,7 @@ erDiagram
     incidents ||--o{ incident_work_logs : has
     incidents ||--o{ incident_events : "audit log"
     users ||--o{ incident_events : acts
+    users |o--o{ incident_events : "is about (subject)"
 
     users {
         int id PK
@@ -156,6 +157,7 @@ erDiagram
         text type
         text from_value
         text to_value
+        int subject_id FK "nullable, e.g. engineer taken off"
     }
 ```
 
@@ -192,18 +194,20 @@ Nothing is hard-deleted. Admin can void an erroneous incident (reason) -> it mov
 - Issue types (fixed list in code): IT: Wi-Fi, Monitor, Docking station, Printer, Badge reader. Facilities: HVAC, Lighting, Plumbing, Furniture, Cleaning. AV: Projector, Video conferencing, Speakers. Security: Door access, Camera, Lock.
 
 ## 7. Business questions -> features
-- Open incidents & status -> status cards + pipeline, filterable list
+- Open incidents & status -> totals (all reported, active, archived, voided) and one tile per status, so the tiles add up; filterable list with search by title, description or incident number
 - Recurring locations -> recurring issues panel, hotspots by building/floor/seat
 - Ack/assign/resolve speed -> avg time KPIs from timestamps
-- Engineer availability & distribution -> availability + workload, hours by engineer, helped-others, missed shift commitments
+- Engineer availability & distribution -> availability + workload, hours by engineer, helped-others, missed shift commitments (counts, plus a page listing each one with its ticket), admin reassign with a suggested engineer, click an engineer to see every ticket they are on
 - Common issue types -> incidents by category/issue_type; avg hours by category
 - Escalated/blocked & why -> "Needs attention": blocked (reason), priority raised by employees
 - Employees informed -> time to first engineer note, % resolved with resolution note, reopen rate
 
 ## 8. Frontend
 - src/services/api.js (VITE_API_URL, attaches token, one error handler), src/context/AuthContext.jsx
-- components: Layout (AppBar + role-based drawer, hamburger on mobile), StatusChip, PriorityChip, WorkflowStepper (MUI Stepper, blocked in red, archived state), ConfirmDialog, EmptyState, RecurringBadge
-- pages: Login, Register, Dashboard (per role), IncidentList (table on desktop / cards on mobile via react-responsive; search + filters), IncidentDetail (stepper, allowed actions only, tabs: Notes | Work log | History), IncidentForm (building->floor->seat cascade, category->issue_type, duplicate warning), Facilities, Engineers, Approvals (admin: close approvals + reopen requests)
+- components: Layout (AppBar + role-based drawer, collapsible to icons on desktop, hamburger on mobile), SiteAlertBanner (active critical incidents, every role), StatusChip (incl. Archived and Voided), PriorityChip, WorkflowStepper (MUI Stepper, blocked in red, archived state, red Voided step), ActionDialog, FormDialog, EmptyState, RecurringBadge
+- pages: Login, Register, Dashboard (per role), IncidentList (table on desktop / cards on mobile via react-responsive; search + filters; bulk actions: engineers take/join, admins change priority or void), IncidentDetail (stepper, allowed actions only, reassign for admins, tabs: Notes | Work log | History), IncidentForm (building->floor->seat cascade with several seats, category->issue_type, duplicate warning, critical warning), Facilities, Engineers, Approvals (admin: close approvals + reopen requests, bulk approve/reject), People (admin: role changes), Missed shift commitments (admin: everyone; engineer: their own)
+- Routing: HashRouter (URLs like /#/incidents/58), because the S3 origin answers 403 for paths that aren't files and CloudFront only rewrites 404s, so a refresh on /incidents/58 would fail. Pages are loaded on demand (lazyWithReload reloads once if a deploy replaced them).
+- Freshness: lists, tickets, the dashboard, approvals and the alert banner reload every 30 s while the tab is visible; the ticket page pauses this while a form or dialog is open so optimistic locking still catches conflicting edits.
 - UX: loading states, Snackbar success/error, disable forms while submitting, field-level errors, hide actions the user can't perform.
 
 ## 9. Seed data
@@ -211,12 +215,13 @@ Nothing is hard-deleted. Admin can void an erroneous incident (reason) -> it mov
 Intentional patterns: Seat 12-A-034 with 5 Wi-Fi incidents; one floor with 4 HVAC incidents on different seats; one overloaded engineer; one engineer with missed shift commitments; several blocked with reasons; pending close approvals + reopen requests.
 
 ## 10. Tests
-- pytest: rules.py transitions, @acme.inc validation, role checks, parse_path, missed-shift logic, recurring detection.
-- Vitest + React Testing Library: StatusChip, WorkflowStepper, Login error state.
-- README: commands, results, known gaps.
+- See [TESTING.md](TESTING.md) for how to run them, current results and coverage.
+- pytest: unit tests for rules.py and validation; handler tests for every service through the real Lambda handler with a faked repository; integration tests against real PostgreSQL in a throwaway schema (races, role changes, totals, missed shifts, labor limit).
+- Vitest + React Testing Library: components, helpers (status age, locations, bulk, engineer ranking, auto-reload) and page states.
+- CI (.github/workflows/tests.actions.yml): backend tests with coverage, eslint, Vitest and the build on every push, plus Bandit, npm audit and Checkov.
 
-## 11. Future improvements (README only, do not build)
-Start/stop timer for work logs, email notifications, SSO, pagination, admin-managed issue types, self-service password reset.
+## 11. Future improvements (not built)
+Database migrations with Alembic (versioned, run once per deploy, with downgrades) instead of CREATE/ALTER ... IF NOT EXISTS on cold start; RDS Proxy for connection pooling at scale (and moving the per-connection `SET statement_timeout` to a role default so connections aren't pinned); email/Teams notifications driven from incident_events through SQS; websockets instead of polling; warnings before a shift commitment is missed; response-time targets per priority; SSO; admin-managed issue types; self-service password reset; httpOnly cookies and login rate limiting.
 
 ## 12. Build order
 1. _shared + DB schema + seed; verify tables in Supabase
@@ -228,6 +233,10 @@ Start/stop timer for work logs, email notifications, SSO, pagination, admin-mana
 7. facilities + engineers services and pages; Approvals page
 8. Recurring issues + shift stats
 9. Tests + README
+10. Reporter permissions, site alerts, status age, collapsible sidebar
+11. Multi-seat reports, bulk actions, admin reassign, background refresh
+12. AWS deploy and production fixes (database wake-up timeout, hash routing, cache headers)
+13. Voided tickets in the archive, engineers close tickets, people and role changes, totals, engineer history, missed-shift list, 12-hour labor limit
 
 
 
@@ -288,3 +297,10 @@ Start/stop timer for work logs, email notifications, SSO, pagination, admin-mana
 
 ### 13.10 Production considerations (README only, not built)
 RDS Proxy for connection pooling under high Lambda concurrency; rate limiting on login (API Gateway/WAF); Alembic migrations; retry with backoff for transient DB errors; caching dashboard queries; CloudWatch alarms on 5xx rate; refresh-token rotation.
+
+## 14. Deployment
+- `bin/deploy-backend.sh` (Terraform: Aurora, Lambdas, CloudFront) then `bin/deploy-frontend.sh` (build, upload to S3, invalidate CloudFront), with `EVENT_ID`, `PARTICIPANT_ID`, `PARTICIPANT_CODE` and `AWS_REGION` set; `bin/setup-participant.sh` turns them into temporary AWS credentials.
+- The database is created and seeded on the first Lambda cold start; the demo password is `terraform output -raw seed_password`.
+- Aurora Serverless v2 scales to zero and takes ~15 s to resume, so the connect timeout is 25 s (under CloudFront's 30 s origin limit). Warm it up before a demo.
+- Frontend cache headers: content-hashed `assets/` are cached for a year (immutable) and kept across deploys, so a tab opened before a deploy still loads; `index.html` is uploaded last with `no-cache`, so browsers always fetch the newest build.
+- A login is stored per browser (localStorage), so testing several roles at once needs separate browsers or a private window.

@@ -43,34 +43,40 @@ the backend unit and handler tests with coverage, then eslint, Vitest and the
 production build for the frontend. The integration tests skip themselves there
 because CI has no database.
 
-## Latest results (2026-09-23)
+## Latest results (2026-09-24)
 
 | Suite | Result |
 | --- | --- |
-| Backend, unit + handler | 462 passed, 12 skipped (integration tests, opt-in) |
-| Backend, with `RUN_INTEGRATION=1` | 474 passed. The `public` schema's row counts are unchanged afterwards |
-| Frontend (Vitest) | 52 passed in 9 files |
+| Backend, unit + handler | 508 passed, 18 skipped (integration tests, opt-in) |
+| Backend, with `RUN_INTEGRATION=1` | 526 passed. The `public` schema's row counts are unchanged afterwards |
+| Frontend (Vitest) | 65 passed in 13 files |
 
 Backend line coverage (pytest-cov):
 
 | Module | Unit only | With integration |
 | --- | --- | --- |
 | `incidents/rules.py` | 100% | 100% |
-| `_shared/http.py`, `auth.py`, `shifts.py`, `errors.py` | 100% | 100% |
+| `_shared/http.py`, `shifts.py`, `errors.py` | 100% | 100% |
+| `_shared/auth.py` | 95% | 100% |
 | `_shared/validation.py` | 99% | 99% |
-| `_shared/engineer_stats.py` | 67% | 100% |
-| `auth/service.py`, `auth/function.py` | 100% | 100% |
+| `_shared/engineer_stats.py` | 71% | 100% |
+| `auth/service.py` | 100% | 100% |
+| `auth/repository.py` | 44% | 84% |
 | `dashboard/service.py`, `dashboard/function.py` | 100% | 100% |
-| `dashboard/repository.py` | 50% | 100% |
-| `incidents/service.py` | 66% | 71% |
-| `incidents/repository.py` | 38% | 76% |
+| `dashboard/repository.py` | 52% | 100% |
+| `incidents/service.py` | 75% | 81% |
+| `incidents/repository.py` | 36% | 84% |
 | `engineers/service.py`, `engineers/function.py` | 75%, 88% | 100%, 100% |
 | `facilities/service.py`, `facilities/repository.py` | 51%, 27% | 81%, 68% |
-| **Total (`_shared`, `auth`, `incidents`, `dashboard`, `facilities`, `engineers`)** | **67%** | **88%** |
+| **Total (`_shared`, `auth`, `incidents`, `dashboard`, `facilities`, `engineers`)** | **70%** | **91%** |
 
-Frontend coverage is 19% of statements. The tested files are well covered:
-`StatusChip`, `WorkflowStepper` and `LoginPage` are at 100% of lines,
-`FormDialog` is at 97% and `services/api.js` is at 62%. Every other page and component is at 0%.
+Frontend coverage is 24% of statements. The tested files are well covered:
+`StatusChip`, `WorkflowStepper`, `SiteAlertBanner`, `SimilarIncidentsWarning`,
+`LoginPage` and `bulk.js` are at 100% of lines, `FormDialog` 97%, `useApiData` 94%,
+`lazyWithReload` 92%, `assign.js` 89%, `constants.js` 79% and `WorkLogPanel` 72%.
+The larger pages (dashboard, incident list and detail, facilities, engineers,
+people, missed shifts) are covered by the backend handler and integration tests
+and by browser checks, not by Vitest.
 
 ## What is covered
 
@@ -139,7 +145,7 @@ Frontend coverage is 19% of statements. The tested files are well covered:
   - Non-ASCII digits such as `"²"` in `?page=²` or `/api/incidents/²`. `str.isdigit()` is True for them, but `int()` rejects them. Fixed: `get_int` and `match_route` accept only ASCII `0-9` (`isascii()` + `isdecimal()`).
 - **A leak the CI run found (now fixed).** Step 8 made the ticket detail also look up recurring counts, and three handler tests didn't fake that call. On a machine with `POSTGRES_*` set they quietly ran read-only queries against that database; without it they returned 500. The fixture now fakes it, and `conftest.py` makes every non-integration test fail if it tries to open a connection.
 - **Coverage.**
-  - Backend: 88% with integration tests, 67% without (CI runs the 67% set).
+  - Backend: 91% with integration tests, 70% without (CI runs the 70% set).
   - Frontend: 19%.
   - The success paths of acknowledge, priority, request decisions and work-log edits are not tested.
   - The incident list, detail, form, register, dashboard, facilities, engineers and approvals pages have no tests (the new pages were checked in the browser, see below).
